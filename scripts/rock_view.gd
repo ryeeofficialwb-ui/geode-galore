@@ -14,7 +14,6 @@ var hits_total := 0
 var hits_done := 0
 var img: Image                 # working copy of the rock art, cracks are painted into it
 var tex: ImageTexture
-var art_tex: Texture2D         # hand-drawn crack stage (if the file exists)
 var pop := 1.0                 # appear animation 0..1 (tweened)
 var _used := Rect2i()          # the part of the art PNG that has pixels (empty border cropped off)
 var _cell := 32                # size of the full art PNG (keeps big rocks big, small rocks small)
@@ -41,7 +40,6 @@ func set_rock(id: String) -> void:
 	_cracks.clear()
 	_opaque.clear()
 	_interior.clear()
-	art_tex = null
 	hits_done = 0
 	if id == "":
 		img = null
@@ -109,10 +107,6 @@ func do_hit(at: Vector2) -> void:
 		var start: Vector2i = pixel if i == 0 or _cracks.is_empty() else _cracks.pick_random()
 		_crack_from(start)
 	tex.update(img)
-	var stage := ceili(float(hits_done) / hits_total * Config.CRACK_ART_STAGES)
-	var path := "res://assets/rocks/%s_crack_%d.png" % [rock_id, stage]
-	if ResourceLoader.exists(path):
-		art_tex = load(path)
 	var hit_pos := rect.position + (Vector2(pixel) + Vector2(0.5, 0.5)) * px
 	if hits_done >= hits_total:
 		_break_apart()
@@ -158,7 +152,6 @@ func _break_apart() -> void:
 	_is_broken = true
 	var rect := _rock_rect()
 	var center := rect.get_center()
-	var shown: Texture2D = art_tex if art_tex else tex
 	var n := maxi(Config.BREAK_PIECES, 1)
 	var cell := Vector2(img.get_width(), img.get_height()) / n
 	for gy in n:
@@ -171,7 +164,7 @@ func _break_apart() -> void:
 			if away == Vector2.ZERO:
 				away = Vector2.UP
 			_pieces.append({
-				"tex": shown, "region": Rect2(region.position + (Vector2(_used.position) if art_tex else Vector2.ZERO), region.size), "size": cell * _px(), "p": screen_center,
+				"tex": tex, "region": region, "size": cell * _px(), "p": screen_center,
 				"v": away * randf_range(180, 360) + Vector2(0, -320), "rot": 0.0,
 				"w": randf_range(-6, 6), "life": 1.1,
 			})
@@ -231,10 +224,7 @@ func _draw() -> void:
 		draw_set_transform(Vector2(size.x * 0.5, rect.end.y), 0.0, Vector2(1.0, sh.y / sh.x))
 		draw_circle(Vector2.ZERO, sh.x, Color(0, 0, 0, 0.35))
 		draw_set_transform_matrix(Transform2D.IDENTITY)
-		if art_tex:
-			draw_texture_rect_region(art_tex, rect, Rect2(_used))
-		else:
-			draw_texture_rect(tex, rect, false)
+		draw_texture_rect(tex, rect, false)
 	for pc in _pieces:
 		draw_set_transform(pc.p, pc.rot, Vector2.ONE)
 		draw_texture_rect_region(pc.tex, Rect2(-pc.size * 0.5, pc.size), pc.region,

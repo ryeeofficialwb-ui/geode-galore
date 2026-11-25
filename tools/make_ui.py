@@ -1,19 +1,15 @@
-"""Builds the pixel-art UI skin, the upgrade / ticket icons and the new ore icons.
+"""Builds the pixel-art UI skin, the upgrade / ticket icons and the caves' wall tiles.
 
     py -3.12 tools/make_ui.py
 
 The skin (buttons, menus, slots, slider knob) is drawn in code below (make_skin) in the Resurrect 64
-colours. (Your first panels are kept in art_source/ui/ui_panels.png for reference; they aren't used.)
+colours. (Rocks, ores and gems are cut from art_source/sheet_v3.png by tools/slice_sheets.py.)
 From YOUR art:
-  art_source/new_gems.png       left = Tourmaline, right = Zapperion (32 x 32 each)
-  art_source/rustvein.png       Rustvein (32 x 32)
-  art_source/new_ores_2.png     Lapis, Stibnite, Obsidian (32 x 32 each, left to right)
   art_source/cave_sheet.png     the cave walls, 32 x 32 each, left to right (see CAVE_TILES below)
 Writes:
   assets/ui/skin/button.png (+ _hover, _pressed, _disabled), panel.png (menus), slot.png (sunken boxes),
   grabber.png (slider knob) - tiny (16 px) art, scaled up by UI_PIXEL_SCALE in the game
   assets/ui/upgrades/<upgrade id>.png and assets/ui/ticket.png - PLACEHOLDERS (16 x 16), replace freely
-  assets/ores/rustvein.png, tourmaline.png, zapperion.png, lapis.png, stibnite.png, obsidian.png
   assets/wall/<cave id>.png (the caves' wall tiles, Config.CAVES)
   art_source/ui/preview.png - everything side by side, 6x, to look at
 The game reads the 9-slice margins from Config (UI_SKIN_*): the corners never stretch, so a redrawn
@@ -418,16 +414,6 @@ def make_skin():
     return variants
 
 
-def cut_ores():
-    gems = Image.open(ROOT / "art_source/new_gems.png").convert("RGBA")
-    gems.crop((0, 0, 32, 32)).save(ROOT / "assets/ores/tourmaline.png")
-    gems.crop((32, 0, 64, 32)).save(ROOT / "assets/ores/zapperion.png")
-    Image.open(ROOT / "art_source/rustvein.png").convert("RGBA").save(ROOT / "assets/ores/rustvein.png")
-    more = Image.open(ROOT / "art_source/new_ores_2.png").convert("RGBA")  # left to right
-    for i, oid in enumerate(("lapis", "stibnite", "obsidian")):
-        more.crop((i * 32, 0, i * 32 + 32, 32)).save(ROOT / f"assets/ores/{oid}.png")
-
-
 # art_source/cave_sheet.png, left to right -> cave id (None = skip; the last one is the Old Mine's wall_tile.png)
 CAVE_TILES = ["shale_hollow", "crimson_deep", "blackrock_tunnels", "crystal_grotto", "magma_veins", None]
 
@@ -442,7 +428,6 @@ def cut_caves():
 def main():
     skin = make_skin()
     icons = make_icons()
-    cut_ores()
     cut_caves()
     # preview sheet
     items = list(icons.values())

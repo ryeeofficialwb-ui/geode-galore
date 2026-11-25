@@ -13,6 +13,9 @@ signal found_ticket(cave_id: String)  # clearing a stage found a ticket (Ticket 
 
 const SAVE_PATH := "user://save.cfg"
 const LEGACY_ORES := {"copper_ore": "copper", "iron_ore": "iron", "sandstone": "lead"}
+## Tips the old (Indev 0.1 - 0.3) tutorial already explained: saves that finished it skip these.
+const BASIC_TIPS := ["anvil", "backpack", "shop", "mine", "lighter", "danger", "relight", "lives",
+		"act_tap", "act_zigzag", "act_slash", "act_drill", "act_pry"]
 
 var coins := 0
 var rocks := {}           # rock id -> count (in your bag)
@@ -22,6 +25,8 @@ var restock_at := 0.0     # unix time of the next restock
 var current_rock := ""    # rock sitting on the anvil ("" = none)
 var rocks_broken := 0
 var tutorial_done := false  # stays done after Reset
+var tips_seen := {}       # tip id -> true: tips that already popped up (kept through Reset)
+var show_tips := true     # Settings > Tips
 var stage := 1            # mining stage (checkpoint)
 var lives := 0.0          # lives left in this stage (halves count: flooding the lighter costs half a life)
 var stage_walls := 0      # walls broken in this stage
@@ -283,6 +288,12 @@ func relight_range() -> Vector2i:
 	return Vector2i(Config.RELIGHT_HITS_MIN + extra, Config.RELIGHT_HITS_MAX + extra)
 
 
+## How far along the mine's difficulty you are: your stage + the cave's head start. Sets how many actions
+## a wall takes and which move styles you get (Config.ACTION_UNLOCK).
+func skill_stage() -> int:
+	return stage + int(cave_info().get("head_start", 0))
+
+
 func stage_coin_mult() -> float:
 	return 1.0 + (stage - 1) * Config.STAGE_COIN_BONUS
 
@@ -461,6 +472,22 @@ func market_trend(id: String) -> int:
 	return roundi((market_mult(id) / maxf(before, 0.01) - 1.0) * 100.0)
 
 
+func tip_seen(id: String) -> bool:
+	return tips_seen.has(id)
+
+
+func mark_tip(id: String) -> void:
+	if id != "" and not tips_seen.has(id):
+		tips_seen[id] = true
+		save()
+
+
+func set_show_tips(on: bool) -> void:
+	show_tips = on
+	changed.emit()
+	save()
+
+
 func set_tutorial_done() -> void:
 	tutorial_done = true
 	save()
@@ -629,6 +656,8 @@ func save() -> void:
 	cfg.set_value("dwarves", "trip_active", trip_active)
 	cfg.set_value("dwarves", "upgrades", upgrades)
 	cfg.set_value("prefs", "show_hints", show_hints)
+	cfg.set_value("prefs", "tips_seen", tips_seen)
+	cfg.set_value("prefs", "show_tips", show_tips)
 	cfg.set_value("market", "prev", market_prev)
 	cfg.save(SAVE_PATH)
 
@@ -678,6 +707,14 @@ func _load() -> bool:
 		if Config.ROCKS.has(id) or Config.ORES.has(id):
 			market[id] = clampf(float(mk[id]), Config.MARKET_MIN, Config.MARKET_MAX)
 	show_hints = cfg.get_value("prefs", "show_hints", true)
+	show_tips = cfg.get_value("prefs", "show_tips", true)
+	tips_seen = {}
+	var ts = cfg.get_value("prefs", "tips_seen", null)
+	if ts is Dictionary:
+		tips_seen = ts
+	elif tutorial_done:  # a save from the old tutorial: it already explained the basics
+		for id in BASIC_TIPS:
+			tips_seen[id] = true
 	market_prev = cfg.get_value("market", "prev", {})
 	var tk = cfg.get_value("dwarves", "tickets", Config.START_TICKETS)
 	if tk is Dictionary:

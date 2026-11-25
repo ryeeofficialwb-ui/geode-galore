@@ -24,15 +24,12 @@ const NEXT_ROCK_DELAY := 0.9  # configurable  (seconds before the next rock appe
 
 
 # ------------------------------------------------------------------ CRACKS (look & feel)
-## Procedural cracks are drawn into the rock's own pixels each time you hit it.
-## Want hand-drawn cracks instead? Put  assets/rocks/<rock id>_crack_1.png, _crack_2.png ...
-## next to the rock (same size as the rock PNG). See README.md.
+## Cracks are drawn into the rock's own pixels each time you hit it.
 const CRACK_COLOR := Color("#2E222F")  # configurable  (dark crack pixels)
 const CRACK_EDGE_COLOR := Color("#7F708A")  # configurable  (light pixel beside a crack; set alpha 0 to disable)
 const CRACKS_PER_HIT := 2  # configurable  (how many crack lines each hit adds)
 const CRACK_LENGTH_MIN := 3  # configurable  (in rock pixels)
 const CRACK_LENGTH_MAX := 7  # configurable
-const CRACK_ART_STAGES := 3  # configurable  (how many hand-drawn crack images per rock, if you make them)
 
 
 # ------------------------------------------------------------------ ROCK DISPLAY & JUICE
@@ -95,13 +92,15 @@ const START_TICKETS := 0  # configurable  (first-cave tickets in a new game; it 
 ##   coins         x coins you earn down there
 ##   fuel          how long your light lasts compared to the first cave (0.8 = fades 20% faster)
 ##   stone_chance  % chance that clearing a stage finds a rock (any rock type) for your bag
+##   head_start    the walls act as if you were this many stages further: more actions per wall and the
+##                 harder move styles sooner (see ACTION_UNLOCK). The Crystal Grotto has every move from stage 1.
 const CAVES := {  # configurable (whole table)
-	"old_mine": {"name": "Old Mine", "tile": "res://assets/wall/wall_tile.png", "ticket_price": TICKET_PRICE, "coins": 1.0, "fuel": 1.0, "stone_chance": 1.0},
-	"shale_hollow": {"name": "Shale Hollow", "tile": "res://assets/wall/shale_hollow.png", "ticket_price": 250, "coins": 1.4, "fuel": 0.95, "stone_chance": 1.8},
-	"crimson_deep": {"name": "Crimson Deep", "tile": "res://assets/wall/crimson_deep.png", "ticket_price": 600, "coins": 1.9, "fuel": 0.9, "stone_chance": 2.6},
-	"blackrock_tunnels": {"name": "Blackrock Tunnels", "tile": "res://assets/wall/blackrock_tunnels.png", "ticket_price": 1400, "coins": 2.6, "fuel": 0.85, "stone_chance": 3.4},
-	"magma_veins": {"name": "Magma Veins", "tile": "res://assets/wall/magma_veins.png", "ticket_price": 3000, "coins": 3.5, "fuel": 0.8, "stone_chance": 4.2},
-	"crystal_grotto": {"name": "Crystal Grotto", "tile": "res://assets/wall/crystal_grotto.png", "ticket_price": 6500, "coins": 4.75, "fuel": 0.75, "stone_chance": 5.0},
+	"old_mine": {"name": "Old Mine", "tile": "res://assets/wall/wall_tile.png", "ticket_price": TICKET_PRICE, "coins": 1.0, "fuel": 1.0, "stone_chance": 1.0, "head_start": 0},
+	"shale_hollow": {"name": "Shale Hollow", "tile": "res://assets/wall/shale_hollow.png", "ticket_price": 250, "coins": 1.4, "fuel": 0.95, "stone_chance": 1.8, "head_start": 1},
+	"crimson_deep": {"name": "Crimson Deep", "tile": "res://assets/wall/crimson_deep.png", "ticket_price": 600, "coins": 1.9, "fuel": 0.9, "stone_chance": 2.6, "head_start": 2},
+	"blackrock_tunnels": {"name": "Blackrock Tunnels", "tile": "res://assets/wall/blackrock_tunnels.png", "ticket_price": 1400, "coins": 2.6, "fuel": 0.85, "stone_chance": 3.4, "head_start": 3},
+	"magma_veins": {"name": "Magma Veins", "tile": "res://assets/wall/magma_veins.png", "ticket_price": 3000, "coins": 3.5, "fuel": 0.8, "stone_chance": 4.2, "head_start": 4},
+	"crystal_grotto": {"name": "Crystal Grotto", "tile": "res://assets/wall/crystal_grotto.png", "ticket_price": 6500, "coins": 4.75, "fuel": 0.75, "stone_chance": 5.0, "head_start": 5},
 }
 ## Rocks found in caves: true = every rock type is as likely as any other; false = they follow shop_weight
 ## (cheap rocks more often).
@@ -165,6 +164,16 @@ const ROCKS := {  # configurable (whole table)
 	"rock_18": {"name": "Tower Rock", "price": 70, "shop_weight": 7, "hits_min": 5, "hits_max": 7, "rolls": 3, "quality": 0.29, "bonus": {"uranium": 2.0, "onyx": 1.5}},
 	"rock_19": {"name": "Saddle Rock", "price": 80, "shop_weight": 6, "hits_min": 5, "hits_max": 7, "rolls": 3, "quality": 0.36, "bonus": {"onyx": 2.0, "dreamstone": 1.5}},
 	"rock_11": {"name": "Egg Boulder", "price": 110, "shop_weight": 4, "hits_min": 6, "hits_max": 8, "rolls": 3, "quality": 0.59, "bonus": {"dreamstone": 2.0}},
+	"rock_21": {"name": "Split Boulder", "price": 55, "shop_weight": 10, "hits_min": 4, "hits_max": 6, "rolls": 2, "quality": 0.29, "bonus": {"veridium": 2.0}},
+	"rock_22": {"name": "Broken Knot", "price": 28, "shop_weight": 20, "rolls": 2, "quality": 0.07, "bonus": {"mudspec": 2.5, "polyphite": 1.5}},
+	"rock_23": {"name": "Slate Stack", "price": 32, "shop_weight": 18, "rolls": 1, "quality": 0.35, "bonus": {"polyphite": 2.0, "white_quartz": 1.5}},
+	"rock_24": {"name": "Anvil Rock", "price": 65, "shop_weight": 9, "hits_min": 5, "hits_max": 7, "rolls": 2, "quality": 0.36, "bonus": {"hellspec": 2.0}},
+	"rock_25": {"name": "Flatstone", "price": 14, "shop_weight": 34, "hits_min": 2, "hits_max": 4, "rolls": 1, "quality": 0.08, "bonus": {"mudspec": 2.0}},
+	"rock_26": {"name": "Knuckle Rock", "price": 38, "shop_weight": 15, "rolls": 2, "quality": 0.16, "bonus": {"rose_quartz": 2.0}},
+	"rock_27": {"name": "Moon Boulder", "price": 85, "shop_weight": 6, "hits_min": 5, "hits_max": 7, "rolls": 3, "quality": 0.3, "bonus": {"pearl": 2.0, "white_quartz": 1.5}},
+	"rock_28": {"name": "Bean Rock", "price": 24, "shop_weight": 22, "rolls": 1, "quality": 0.24, "bonus": {"tigers_eye": 2.0}},
+	"rock_29": {"name": "Spire", "price": 120, "shop_weight": 3, "hits_min": 6, "hits_max": 8, "rolls": 3, "quality": 0.47, "bonus": {"cryo_core": 2.0, "aquamarine": 1.5}},
+	"rock_30": {"name": "Twisted Rock", "price": 175, "shop_weight": 2, "hits_min": 7, "hits_max": 9, "rolls": 3, "quality": 0.74, "bonus": {"daevorium": 2.0, "hellspec": 1.5}},
 	"rock_20": {"name": "Wedge Rock", "price": 150, "shop_weight": 2, "hits_min": 7, "hits_max": 9, "rolls": 3, "quality": 0.83, "bonus": {"dreamstone": 2.0, "onyx": 1.5, "uranium": 1.5}},
 }
 
@@ -181,17 +190,26 @@ const ROCKS := {  # configurable (whole table)
 ## The order here is the order in the Backpack.
 const ORES := {  # configurable (whole table)
 	"lead": {"name": "Lead", "sell_price": 4, "type": "ore", "rare": false, "color": Color("#a99ab5"), "chance": [32.0, 10.0], "amount": [1, 2]},
+	"mudspec": {"name": "Mudspec", "sell_price": 5, "type": "ore", "rare": false, "color": Color("#b08a66"), "chance": [6.5, 1.6], "amount": [1, 3]},
 	"copper": {"name": "Copper", "sell_price": 6, "type": "ore", "rare": false, "color": Color("#e8925f"), "chance": [22.0, 12.0], "amount": [1, 1]},
 	"iron": {"name": "Iron", "sell_price": 8, "type": "ore", "rare": false, "color": Color("#dcc6ba"), "chance": [15.0, 15.0], "amount": [1, 2]},
 	"zinc": {"name": "Zinc", "sell_price": 11, "type": "ore", "rare": false, "color": Color("#8fd3c9"), "chance": [10.0, 14.0], "amount": [1, 2]},
+	"polyphite": {"name": "Polyphite", "sell_price": 12, "type": "ore", "rare": false, "color": Color("#b3b864"), "chance": [2.4, 3.2], "amount": [1, 2]},
 	"rhodonite": {"name": "Rhodonite", "sell_price": 14, "type": "gem", "rare": false, "color": Color("#ec85a6"), "chance": [4.0, 12.0], "amount": [1, 1]},
 	"rustvein": {"name": "Rustvein", "sell_price": 16, "type": "ore", "rare": false, "color": Color("#f57d4a"), "chance": [3.0, 13.0], "amount": [1, 2]},
 	"stibnite": {"name": "Stibnite", "sell_price": 24, "type": "ore", "rare": false, "color": Color("#c7dcd0"), "chance": [2.0, 12.0], "amount": [1, 2]},
 	"silver": {"name": "Silver", "sell_price": 20, "type": "ore", "rare": false, "color": Color("#dfe9ec"), "chance": [2.5, 16.0], "amount": [1, 1]},
 	"jade": {"name": "Jade", "sell_price": 30, "type": "gem", "rare": false, "color": Color("#62cf9e"), "chance": [1.2, 11.0], "amount": [1, 1]},
+	"veridium": {"name": "Veridium", "sell_price": 35, "type": "ore", "rare": false, "color": Color("#4fd16b"), "chance": [0.4, 3.0], "amount": [1, 2]},
+	"white_quartz": {"name": "White Quartz", "sell_price": 40, "type": "gem", "rare": false, "color": Color("#e6eef0"), "chance": [0.27, 2.4], "amount": [1, 1]},
 	"gold": {"name": "Gold", "sell_price": 45, "type": "ore", "rare": false, "color": Color("#ffd84a"), "chance": [0.8, 12.0], "amount": [1, 1]},
+	"rose_quartz": {"name": "Rose Quartz", "sell_price": 55, "type": "gem", "rare": false, "color": Color("#f2a7c3"), "chance": [0.14, 1.6], "amount": [1, 1]},
 	"peridot": {"name": "Peridot", "sell_price": 60, "type": "gem", "rare": true, "color": Color("#aee35c"), "chance": [0.2, 4.0], "amount": [1, 1]},
+	"cryo_core": {"name": "Cryo-core", "sell_price": 80, "type": "ore", "rare": true, "color": Color("#9eeaff"), "chance": [0.05, 1.1], "amount": [1, 1]},
+	"tigers_eye": {"name": "Tiger's Eye", "sell_price": 90, "type": "gem", "rare": true, "color": Color("#e0913a"), "chance": [0.07, 1.1], "amount": [1, 1]},
 	"lapis": {"name": "Lapis", "sell_price": 120, "type": "gem", "rare": true, "color": Color("#4d9be6"), "chance": [0.1, 3.0], "amount": [1, 1]},
+	"hellspec": {"name": "Hellspec", "sell_price": 150, "type": "ore", "rare": true, "color": Color("#e0503c"), "chance": [0.027, 0.8], "amount": [1, 1]},
+	"aquamarine": {"name": "Aquamarine", "sell_price": 180, "type": "gem", "rare": true, "color": Color("#6fe3dc"), "chance": [0.02, 0.7], "amount": [1, 1]},
 	"topaz": {"name": "Topaz", "sell_price": 250, "type": "gem", "rare": true, "color": Color("#ffb347"), "chance": [0.12, 3.5], "amount": [1, 1]},
 	"uranium": {"name": "Uranium", "sell_price": 200, "type": "ore", "rare": true, "color": Color("#6cff5a"), "chance": [0.08, 3.0], "amount": [1, 1]},
 	"amethyst": {"name": "Amethyst", "sell_price": 250, "type": "gem", "rare": true, "color": Color("#c690e6"), "chance": [0.08, 3.0], "amount": [1, 1]},
@@ -200,7 +218,9 @@ const ORES := {  # configurable (whole table)
 	"ruby": {"name": "Ruby", "sell_price": 250, "type": "gem", "rare": true, "color": Color("#ff4a5e"), "chance": [0.04, 2.0], "amount": [1, 1]},
 	"onyx": {"name": "Onyx", "sell_price": 100, "type": "gem", "rare": true, "color": Color("#b9b3cf"), "chance": [0.03, 1.8], "amount": [1, 1]},
 	"obsidian": {"name": "Obsidian", "sell_price": 350, "type": "gem", "rare": true, "color": Color("#ae97ae"), "chance": [0.03, 1.6], "amount": [1, 1]},
+	"daevorium": {"name": "Daevorium", "sell_price": 400, "type": "ore", "rare": true, "color": Color("#ff3d6b"), "chance": [0.008, 0.4], "amount": [1, 1]},
 	"emerald": {"name": "Emerald", "sell_price": 500, "type": "gem", "rare": true, "color": Color("#45e3c4"), "chance": [0.025, 1.5], "amount": [1, 1]},
+	"pearl": {"name": "Pearl", "sell_price": 600, "type": "gem", "rare": true, "color": Color("#f6f2ec"), "chance": [0.005, 0.35], "amount": [1, 1]},
 	"zapperion": {"name": "Zapperion", "sell_price": 650, "type": "gem", "rare": true, "color": Color("#e2e679"), "chance": [0.02, 1.4], "amount": [1, 1]},
 	"dreamstone": {"name": "Dreamstone", "sell_price": 1000, "type": "gem", "rare": true, "color": Color("#d9a6ff"), "chance": [0.015, 1.2], "amount": [1, 1]},
 }
@@ -231,6 +251,17 @@ const ORE_LORE := {  # configurable
 	"emerald": "Green beryl full of tiny flaws the jewellers call its 'garden'. A flawless one is rarer than a diamond.",
 	"zapperion": "A yellow-green crystal that crackles when touched. Nobody knows what it is, but lamps flicker when it's near.",
 	"dreamstone": "Lavender lumps found only in the deepest walls. Sleep beside one and you'll dream of veins of gold.",
+	"mudspec": "Brown, crumbly and streaked with darker bands. Mostly dried mud with a speck of metal - miners sell it by the sackful.",
+	"polyphite": "Olive lumps that grow in clusters, like the rock is sprouting. Smiths grind it into a green flux.",
+	"veridium": "Spiky green crystals that hum in the dark. Dwarves set them in their helmets to see in the deep.",
+	"cryo_core": "Ice-blue cores, cold enough to frost your gloves. They never melt, even in a forge.",
+	"hellspec": "Red shards from near the magma. They stay warm for years; drop one in a bucket and it boils.",
+	"daevorium": "Deep crimson crystals with a light inside. Old miners won't sleep in a tunnel that has some.",
+	"white_quartz": "Clear white quartz, as common in the deep as sand on a beach - but a clean one still sparkles.",
+	"rose_quartz": "Soft pink quartz. Miners carry a piece for luck and give the best ones away.",
+	"tigers_eye": "Golden-brown bands that shimmer as you turn it, like an eye looking back at you.",
+	"aquamarine": "Sea-blue beryl. Sailors say it keeps you calm in a storm; miners say it keeps the water out.",
+	"pearl": "A perfect white pearl, somehow grown in stone. Nobody can explain it, and everybody wants one.",
 }
 
 
@@ -243,6 +274,12 @@ const WALL_TILE_FILE := "res://assets/wall/wall_tile.png"  # configurable  (the 
 const WALL_TILE_SCALE := 3  # configurable  (32px tile x 3 = 96px on screen)
 const WALL_ACTIONS_MIN := 4  # configurable  (actions needed to take the wall down: random MIN..MAX)
 const WALL_ACTIONS_MAX := 8  # configurable
+## Scaling difficulty: the further you get (your stage + the cave's head_start), the more actions a wall takes.
+const WALL_ACTIONS_PER_STAGE := 0.5  # configurable  (extra actions per stage above 1: 0.5 = one more every 2 stages)
+const WALL_ACTIONS_EXTRA_MAX := 6  # configurable  (never more than this many extra)
+## Nothing you have to tap, trace or click ever comes closer than this to the window's edges
+## (buttons, circles, lines, the menu). The lighter is held from below, so it may run off the bottom.
+const SAFE_BORDER := 16  # configurable  (px)
 const WALL_RESPAWN_DELAY := 1.1  # configurable  (seconds the rubble falls before a new wall)
 const SCREEN_SLIDE_TIME := 0.35  # configurable  (seconds to slide between screens)
 const ACTION_GAP := 0.3  # configurable  (pause in seconds between two actions)
@@ -254,6 +291,15 @@ const ACTION_WEIGHTS := {  # configurable
 	"slash": 20,    # one big, fast swipe along a long line
 	"drill": 15,    # spam-click the same spot
 	"pry": 15,      # hold on the wedge, let go when the gauge is in the gold zone
+	"track": 15,    # keep clicking a circle that drifts around the wall (a moving drill)
+	"swirl": 15,    # trace a spiral from the outside in
+	"bigslash": 12, # one huge, very fast swipe right across the wall
+	"spin": 12,     # hold and spin your cursor round a circle, fast (like an osu! spinner)
+}
+## Which stage each move style starts showing up at (your stage + the cave's head_start, see CAVES).
+const ACTION_UNLOCK := {  # configurable
+	"tap": 1, "zigzag": 1, "slash": 1, "drill": 1, "pry": 1,
+	"track": 2, "swirl": 3, "bigslash": 4, "spin": 6,
 }
 const NO_REPEAT_ACTION := true  # configurable  (true = never the same action twice in a row)
 
@@ -275,7 +321,7 @@ const MISS_BREAKS_COMBO := false  # configurable  (true = any miss resets the co
 ## a marker sweeps back and forth along a track - hit SPACE while it's in the gold zone. Every good
 ## strike lowers the bar, but the marker gets faster and the zone smaller; a mistimed strike pushes
 ## the bar back up. Empty the bar within RELIGHT_TIME seconds or you lose a life.
-const LIGHTER_DIR := "res://assets/lighter/"  # configurable  (lighter_0.png = closed ... lighter_N.png = open, flame.png)
+const LIGHTER_DIR := "res://assets/lighter/"  # configurable  (lighter_0.png = closed ... lighter_N.png = open, flame_0.png ... = the flame)
 const LIGHTER_SCALE := 5  # configurable  (art pixels -> screen pixels; 5 = big, close to you)
 const LIGHTER_POS := Vector2(334, 180)  # configurable  (bottom of the flame: px from the LEFT edge, px up from the BOTTOM)
 const LIGHTER_SWAY := Vector2(14, 12)  # configurable  (px the lighter leans towards your mouse; 0 = never moves)
@@ -297,6 +343,10 @@ const FLICK_TEMPO := {  # configurable
 	"slash": [0.36, 0.3],    # very fast
 	"drill": [0.65, 0.24],   # quick
 	"pry": [1.5, 0.18],      # slow, narrow zone
+	"track": [0.6, 0.24],    # quick
+	"swirl": [1.1, 0.22],    # steady
+	"bigslash": [0.36, 0.3], # very fast
+	"spin": [0.8, 0.26],     # keep spinning, flick with SPACE
 }
 const FLICK_ZONE_END := 0.94  # configurable  (the gold zone ends here on the bar; above it is "too late")
 ## A slow bar means fewer flicks, so each good flick gives more light: hitting every flick brings the light
@@ -337,7 +387,7 @@ const FLOOD_LIFE_COST := 0.5  # configurable  (lives a flood costs: half a life)
 const LIGHTER_KEY := KEY_SPACE  # configurable  (key to flick the lighter; clicking / tapping the lighter works too - that's how phones do it)
 const START_FLICKS_MIN := 3  # configurable  (flicks before the flame catches when you light it up: random MIN..MAX)
 const START_FLICKS_MAX := 5  # configurable
-const WALL_MARGINS := Vector4(140, 150, 90, 110)  # configurable  (px kept free at the wall's left, top, right, bottom: HUD, wick gauge, edges; the Back button has its own strip)
+const WALL_MARGINS := Vector4(140, 150, 120, 110)  # configurable  (px kept free at the wall's left, top, right, bottom: HUD, the Back button, wick gauge, edges)
 const LIGHTER_LID_TIME := 0.18  # configurable  (seconds for the lid to open / close)
 const LIGHT_SOFT_EDGE := 0.45  # configurable  (part of the radius that fades out in steps; 0 = hard edge)
 const LIGHT_BANDS := 4  # configurable  (steps in the fade - it's pixel art, so no smooth gradient)
@@ -423,6 +473,39 @@ const CRACK_BRANCH_CHANCE := 40.0  # configurable  (% chance every ~50px that a 
 const CRACK_BRANCH_LENGTH_MIN := 3  # configurable  (side-crack length in pixels)
 const CRACK_BRANCH_LENGTH_MAX := 8  # configurable
 const CRACK_SOUND_EVERY := 28.0  # configurable  (px of crack between two crackle sounds + chips; 0 = silent)
+
+# --- swirl (trace a spiral from the glowing dot on the outside to the middle)
+const SWIRL_TURNS_MIN := 1.5  # configurable  (times round)
+const SWIRL_TURNS_MAX := 2.5  # configurable
+const SWIRL_RADIUS_MIN := 110.0  # configurable  (px, size of the outer loop)
+const SWIRL_RADIUS_MAX := 180.0  # configurable
+const SWIRL_INNER_RADIUS := 24.0  # configurable  (px, where it ends in the middle)
+const SWIRL_PERFECT_TOLERANCE := 16.0  # configurable  (px you may stray and still be PERFECT)
+const SWIRL_OK_TOLERANCE := 38.0  # configurable  (px; stray further and it's a MISS)
+const SWIRL_LOOKAHEAD := 45.0  # configurable  (px of line ahead of you that counts)
+const SWIRL_CRACK_WIDTH := 2  # configurable
+
+# --- big slash (one huge, fast swipe right across the wall, edge to edge)
+const BIGSLASH_SWIPE_TIME := 0.7  # configurable  (seconds from pressing to finishing)
+const BIGSLASH_CURVE := 0.25  # configurable  (how bendy it can be, part of the wall's height)
+const BIGSLASH_PERFECT_TOLERANCE := 34.0  # configurable
+const BIGSLASH_OK_TOLERANCE := 80.0  # configurable
+const BIGSLASH_LOOKAHEAD := 140.0  # configurable
+
+# --- spin (hold the mouse button and spin round the circle, both ways count; wiggling back doesn't)
+const SPIN_TURNS_MIN := 3.0  # configurable  (turns needed: random MIN..MAX, in half turns)
+const SPIN_TURNS_MAX := 5.0  # configurable
+const SPIN_TIME := 3.5  # configurable  (seconds from your first press; too slow = miss, try again. Shorter on later stages)
+const SPIN_PERFECT_PART := 0.6  # configurable  (finish within this part of SPIN_TIME = PERFECT)
+const SPIN_RADIUS := 110.0  # configurable  (px, the circle drawn on the wall)
+const SPIN_DEAD_ZONE := 25.0  # configurable  (px; right in the middle it can't tell which way you turn)
+
+# --- track (a moving drill: keep clicking the circle as it drifts around)
+const TRACK_RADIUS := 52.0  # configurable  (px)
+const TRACK_CLICKS_MIN := 8  # configurable
+const TRACK_CLICKS_MAX := 14  # configurable
+const TRACK_SPEED := 170.0  # configurable  (about how many px per second it drifts at stage 1; faster later)
+const TRACK_MISS_WICK_COST := 0.05  # configurable  (wick a click that misses it burns; small, it's hard to follow)
 
 # --- drill
 const DRILL_CLICKS_MIN := 8  # configurable  (clicks needed: random MIN..MAX)
@@ -543,7 +626,7 @@ static func font_px(fs: int) -> int:
 
 
 # ------------------------------------------------------------------ TUTORIAL
-const SHOW_TUTORIAL := true  # configurable  (show the tutorial when a new game starts; the "?" button always opens it)
+const SHOW_TUTORIAL := true  # configurable  (short tips pop up as you play, once each; the "?" button always has a short tour)
 
 
 # ------------------------------------------------------------------ SAVE

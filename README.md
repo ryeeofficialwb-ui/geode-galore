@@ -10,8 +10,8 @@ Short on coins? Click **< Mine** on the left to go to the mining wall and earn c
 (you need a **ticket** for one of the **caves**: Shop > Caves).
 
 **Screens**
-- **Top bar:** coins, your mine **tickets**, **Shop** (three tabs: **Rock Shop**, **Dwarven Shop** and **Caves**), **Backpack** (your ores & gems, sell them here), **Settings** (sound on/off, music volume, sound-effect volume, reset), **?** (the tutorial).
-- **Tutorial:** opens by itself on a new game (and once for old saves), and any time from **?**. It spotlights each part of the game and lets you try every wall action with no timer. Skip with **Skip tutorial** or Esc; arrow keys / Enter step through it.
+- **Top bar:** coins, your mine **tickets**, **Shop** (three tabs: **Rock Shop**, **Dwarven Shop** and **Caves**), **Backpack** (your ores & gems, sell them here), **Settings** (sound on/off, music volume, sound-effect volume, hint text, tips, reset), **?** (a short tour).
+- **Tips as you play:** no long tutorial up front. The first time something happens (your first rock, first sale, running out of rocks, your first trip down the mine, each move style the first time it shows up, your light getting low, the lighter going out, your first lost life) a short tip pops up **once**, with a spotlight on what it's about; the mine pauses while it's up. **No more tips** (or Settings > Tips) turns them off. **?** plays a short 6-step tour (you can try the lighter and a move with no timer). Old saves that finished the old tutorial only get tips for the new moves.
 - **Main screen:** the rock in the middle, **Your Rocks** on the right, **< Mine** arrow on the left.
 - **Market & Guide** (top bar): today's price of every ore, gem and rock, its % of normal and how it moved at the
   last restock. Click anything for its page: what it sells for, chances, the 3 best rocks to find it in (your
@@ -31,7 +31,7 @@ Short on coins? Click **< Mine** on the left to go to the mining wall and earn c
   10 minutes**, or buy tickets (Old Mine 100 coins ... Crystal Grotto 6500). Deeper caves pay more coins but your
   light fades faster. **Clearing a stage** has a **1-5%** chance (by cave) of finding a rock - any rock type - for
   Your Rocks. **< Mine** goes back down the cave you were in last (if you have its ticket), the only cave you have
-  tickets for, or opens the Caves tab. (The tutorial's tour of the wall is free.)
+  tickets for, or opens the Caves tab. (The ? tour's visit to the wall is free.)
 - **Dwarven Shop** (second tab of the Shop):
   - **Upgrades** (level 1 gives exactly the first number, the last level exactly the max, a smooth curve in
     between):
@@ -74,7 +74,7 @@ Short on coins? Click **< Mine** on the left to go to the mining wall and earn c
   light, or rush the fast ones because flicking there is hard - and relighting is harder. Later stages speed the
   bar up a bit (`FLICK_STAGE_SPEEDUP`). While the flame is at full blaze the bar shows FULL (flicking floods it).
 
-  **About to lose?** The lighter starts to tremble when the wick or the light drops below 25%, or in the last 2
+  **About to lose?** The lighter starts to tremble (hard) and a red border throbs in from the screen edges like a heartbeat when the wick or the light drops below 30%, or in the last 2
   seconds of the relight countdown, and shakes harder the closer you get. If the light fades all the way, your combo is lost and the lighter goes out.
   When you arrive (and after losing a life) the lighter is shut: flick it a few times (3-5) until the flame catches.
   **On phones there's no SPACE: tap the lighter.** On PC both work. The wall asks for one action at a time:
@@ -85,6 +85,16 @@ Short on coins? Click **< Mine** on the left to go to the mining wall and earn c
   | **SLASH!** | one big, fast swipe along a long line (you have under a second once you press) |
   | **DRILL!** | spam-click the same spot until the counter hits 0 |
   | **PRY!** | hold on the wedge; a gauge fills; let go while it's in the **gold zone** (too long and it snaps) |
+  | **TRACK!** (stage 2+) | a moving drill: keep clicking the circle as it drifts around the wall |
+  | **SWIRL!** (stage 3+) | trace the spiral from the glowing dot on the outside into the middle (no cutting across) |
+  | **SLASH IT ALL!** (stage 4+) | one huge, very fast swipe right across the wall, edge to edge |
+  | **SPIN!** (stage 6+) | hold the button and spin your cursor round the circle, fast (like an osu! spinner); finish within the time shown |
+
+  **Scaling difficulty:** the further you get, the more actions each wall takes (+1 every 2 stages, up to +6) and
+  the more move styles show up (the stage numbers above, `ACTION_UNLOCK`). Pricier caves have a **head start**
+  (Shale Hollow +1 ... Crystal Grotto +5), so you meet every move sooner there - the Crystal Grotto has them all
+  from stage 1. In the mine you only see the cave: the top menu slides away, and nothing you have to hit ever
+  comes within 16 px of the window's edges (`SAFE_BORDER`).
 
   Everything you do leaves pixel-art cracks in the wall, on the wall tile's own pixel grid.
   Clean work = **PERFECT** (1-3 coins). Every finished action raises your **COMBO**; each combo step
@@ -126,7 +136,7 @@ Every line you can change ends with `# configurable`. Save the file and press Pl
 | Relighting | time limit, strikes needed, marker speed and speed-up per strike, gold-zone size / shrink / minimum, how far a miss pushes the bar back (`RELIGHT_...`) |
 | Stages & lives | `LIVES`, `WALLS_PER_STAGE`, whether a lost life restarts the stage, and how much each stage changes fuel, light, relight hits and coins (`STAGE_...`) |
 | Mining wall | tile + tile size, free space at the edges (`WALL_MARGINS`: keeps actions off the HUD, the Back button and the screen edges), actions per wall, how often each action shows up (`ACTION_WEIGHTS`), **combo** bonus and cap, coins, and per action: circle count/size, how fast rings close (`TAP_APPROACH_MIN/MAX`), gap between them, perfect/good timing windows, zigzag turns/width/strictness/corner radius, slash length/swipe time, drill clicks, pry speed and gold-zone size, crack look (thickness, jaggedness, side-cracks, crackle sound), colors |
-| Tutorial | `SHOW_TUTORIAL` (texts are in `_make_steps()` in `scripts/tutorial.gd`) |
+| Tips | `SHOW_TUTORIAL` (the tip texts are in `_tips()` in `scripts/tutorial.gd`, the ? tour is `TOUR`) |
 | Shop (limited stock) | `SHOP_SLOTS`, `STOCK_MIN` / `STOCK_MAX`, `RESTOCK_SECONDS`, duplicate slots, instant-restock cost |
 | Market | lowest / highest price (`MARKET_MIN` / `MARKET_MAX`, 10% / 200%), how far prices jump each restock (`MARKET_SWING`), how fast they drift back to normal (`MARKET_PULL`), the green / red colours |
 | Dwarven Shop & caves | `TICKET_PRICE`, `FREE_TICKET_SECONDS`, `START_TICKETS`, the `CAVES` table (name, wall tile, ticket price, coins, fuel, stone chance), `CAVE_STONE_ANY_EQUAL`, the `UPGRADES` table (name, first / max bonus, levels, cost, cost growth), `FOOLS_GOLD_BONUS`, `FOOLS_GOLD_GEMS` |
@@ -144,24 +154,26 @@ speciality, e.g. Cobblestone `"zinc": 2.5`). When a rock breaks it's rolled `rol
 ore is rolled on its own, so one rock can give several ores, or nothing. `LUCK_MULTIPLIER` multiplies every chance.
 (Advanced: a rock's own `"drops": {"ruby": {"chance": 5, "min": 1, "max": 1}}` replaces that ore's numbers for it.)
 
-**Balancing:** `py -3.12 tools/tune_drops.py` prints, for every rock, what it's worth on average and how
-often it's empty; with `--write` it re-picks each rock's `quality` so it's worth about 90% of its price
-(edit `ORE_CURVE` / `BONUS` / `VALUE_RATIO` at the top of the script first). Since gem prices went up
-(Topaz 250, Emerald 500, Dreamstone 1000...), the rocks are currently worth MORE than they cost (roughly Pebble 11
-for 8, Crag 44 for 26, Big Boulder 100 for 60, Wedge Rock 290 for 150), before the market moves. Running
-`tune_drops.py --write` would bring them back to ~90% (it lowers each rock's quality; it keeps your prices).
+**Balancing:** `py -3.12 tools/tune_drops.py` reads `ORES` and `ROCKS` from `config.gd` and prints, for every
+rock, what it's worth on average (normal prices, no upgrades) and how often it's empty. The rocks are worth
+about 1.4 - 2x their price (`VALUE_RATIO = 1.6` in the script). `tune_drops.py rock_31 --write` re-picks the
+quality (and rolls, if it must) of just the rocks you name so they hit that; nothing else changes.
+New ores make every rock a bit richer (every rock can drop every ore), so give new ones small chances: Indev 0.3's
+11 new ores / gems made the old rocks about 12% richer.
 
 > Starting coins / rocks only apply to a **new** save. Press **Reset** in the game, or set
 > `RESET_SAVE_ON_START = true` while you're tuning.
 
 ### Add a new rock
-1. Draw it in a free cell of `art_source/sheet_v2.png` and write `"rock_21"` in that cell of `GRID` in
-   `tools/slice_sheets.py`, then run it (or just save `assets/rocks/rock_21.png`, 32x32).
-2. Copy one entry in `ROCKS` in `config.gd`, change the id to `"rock_21"` and set its numbers.
+1. Draw it in a free cell of `art_source/sheet_v3.png` and write `"rock_31"` in that cell of `GRID` in
+   `tools/slice_sheets.py`, then run it (or just save `assets/rocks/rock_31.png`, 32x32).
+2. Copy one entry in `ROCKS` in `config.gd`, change the id to `"rock_31"` and set its price / bonus.
+3. `py -3.12 tools/tune_drops.py rock_31 --write` sets its quality to match the other rocks.
 
 ### Add a new ore / gem
-1. Save the art as `assets/ores/diamond.png` (or draw it in a free cell of `art_source/sheet_v2.png`, write `"diamond"` in that cell of `GRID` in `tools/slice_sheets.py` and run it).
-2. Add `"diamond": {...}` to `ORES`, then add `"diamond"` to the `drops` of the rocks that can contain it.
+1. Save the art as `assets/ores/diamond.png` (or draw it in a free cell of `art_source/sheet_v3.png`, write `"diamond"` in that cell of `GRID` in `tools/slice_sheets.py` and run it).
+2. Add `"diamond": {...}` to `ORES` (every rock can drop it; give a rock `"bonus": {"diamond": 2.0}` to make it its speciality),
+   plus a line of lore in `ORE_LORE`.
 
 If an image is missing the game shows a **pink checkerboard** instead of crashing, so you can see what still needs art.
 
@@ -173,77 +185,76 @@ All art is scaled up with crisp, pixel-perfect filtering, so draw at the small s
 Replace a file with **the same name** and Godot picks it up next time you press Play.
 
 ### Rocks: `assets/rocks/` (cut from your sheet)
-| File | Name in game |
-|---|---|
-| `rock_01.png` | Boulder |
-| `rock_02.png` | Pebble (you start with 3) |
-| `rock_03.png` | Big Boulder |
-| `rock_04.png` | Lumpy Rock |
-| `rock_05.png` | Shard Rock |
-| `rock_06.png` | Knobby Rock |
-| `rock_07.png` | Crag |
-| `rock_08.png` | Twin Stones |
-| `rock_09.png` | Rubble Pile |
-| `rock_10.png` | Round Stone |
-| `rock_11.png` | Egg Boulder (speciality: Dreamstone) |
-| `rock_12.png` | Tall Egg (Uranium) |
-| `rock_13.png` | Dome Rock (Zinc, iron) |
-| `rock_14.png` | Cobblestone (Zinc) |
-| `rock_15.png` | Notched Rock (Zinc, jade) |
-| `rock_16.png` | Chipped Block (Onyx) |
-| `rock_17.png` | Clump (Uranium, Zinc) |
-| `rock_18.png` | Tower Rock (Uranium, Onyx) |
-| `rock_19.png` | Saddle Rock (Onyx, Dreamstone) |
-| `rock_20.png` | Wedge Rock (Dreamstone, Onyx, Uranium; very rare in the shop) |
+| File | Name in game | Price | Speciality |
+|---|---|---|---|
+| `rock_01.png` | Boulder | 40 | Silver |
+| `rock_02.png` | Pebble (you start with 3) | 8 |  |
+| `rock_03.png` | Big Boulder | 60 | Sapphire, Ruby |
+| `rock_04.png` | Lumpy Rock | 18 | Jade |
+| `rock_05.png` | Shard Rock | 15 | Peridot |
+| `rock_06.png` | Knobby Rock | 22 | Rhodonite |
+| `rock_07.png` | Crag | 26 | Gold, Topaz |
+| `rock_08.png` | Twin Stones | 90 | Emerald |
+| `rock_09.png` | Rubble Pile | 30 | Lead, Copper |
+| `rock_10.png` | Round Stone | 12 |  |
+| `rock_11.png` | Egg Boulder | 110 | Dreamstone |
+| `rock_12.png` | Tall Egg | 45 | Uranium |
+| `rock_13.png` | Dome Rock | 20 | Zinc, Iron |
+| `rock_14.png` | Cobblestone | 10 | Zinc |
+| `rock_15.png` | Notched Rock | 24 | Zinc, Jade |
+| `rock_16.png` | Chipped Block | 34 | Onyx |
+| `rock_17.png` | Clump | 50 | Uranium, Zinc |
+| `rock_18.png` | Tower Rock | 70 | Uranium, Onyx |
+| `rock_19.png` | Saddle Rock | 80 | Onyx, Dreamstone |
+| `rock_20.png` | Wedge Rock | 150 | Dreamstone, Onyx, Uranium |
+| `rock_21.png` | Split Boulder | 55 | Veridium |
+| `rock_22.png` | Broken Knot | 28 | Mudspec, Polyphite |
+| `rock_23.png` | Slate Stack | 32 | Polyphite, White Quartz |
+| `rock_24.png` | Anvil Rock | 65 | Hellspec |
+| `rock_25.png` | Flatstone | 14 | Mudspec |
+| `rock_26.png` | Knuckle Rock | 38 | Rose Quartz |
+| `rock_27.png` | Moon Boulder | 85 | Pearl, White Quartz |
+| `rock_28.png` | Bean Rock | 24 | Tiger's Eye |
+| `rock_29.png` | Spire | 120 | Cryo-core, Aquamarine |
+| `rock_30.png` | Twisted Rock | 175 | Daevorium, Hellspec |
 
 Every rock can drop every ore and gem; the speciality just makes those more likely (see "How drop chances work").
 
 Keep the rocks on the same canvas size (32x32). A small rock on a 32x32 canvas stays small on screen and a big one stays big; the empty border is cropped automatically.
 
-### Hand-drawn cracks (optional)
-By default cracks are generated into the rock's own pixels on each hit. To draw them yourself, add
-`assets/rocks/<rock id>_crack_1.png`, `_crack_2.png`, `_crack_3.png` (same size as the rock PNG, the
-full rock with cracks drawn on). Stage 1 shows early, stage 3 just before it breaks. You can make them for
-just some rocks; the others keep the generated cracks. The number of stages is `CRACK_ART_STAGES`.
-
 ### Ores & gems: `assets/ores/` (cut from your sheet)
-| Ores | Sells for | | Gems (rare) | Sells for |
+| Ores | Sells for | | Gems | Sells for |
 |---|---|---|---|---|
-| `lead.png` Lead | 4 | | `peridot.png` Peridot | 60 |
-| `copper.png` Copper | 6 | | `topaz.png` Topaz | 80 |
-| `iron.png` Iron | 8 | | `uranium.png` **Uranium** (glowing green lumps) | 90 |
-| `zinc.png` **Zinc** (brown nodules, teal centres) | 11 | | `amethyst.png` Amethyst | 100 |
-| `rhodonite.png` Rhodonite | 14 | | `sapphire.png` Sapphire | 120 |
-| `silver.png` Silver | 20 | | `ruby.png` Ruby | 150 |
-| `jade.png` Jade | 30 | | `onyx.png` **Onyx** (black gem) | 175 |
-| `gold.png` Gold | 45 | | `emerald.png` Emerald | 200 |
-| `rustvein.png` **Rustvein** (rusty red chunks, yours) | 16 | | `tourmaline.png` **Tourmaline** (pink gem, yours) | 200 |
-| `stibnite.png` **Stibnite** (silver-grey crystals, yours) | 24 | | `zapperion.png` **Zapperion** (yellow-green crystal, yours) | 650 |
-| | | | `lapis.png` **Lapis** (blue with gold flecks, yours) | 120 |
-| | | | `obsidian.png` **Obsidian** (dark volcanic glass, yours) | 350 |
-| | | | `dreamstone.png` **Dreamstone** (lavender lumps) | 300 |
+| `lead.png` Lead | 4 | | `rhodonite.png` Rhodonite | 14 |
+| `mudspec.png` Mudspec | 5 | | `jade.png` Jade | 30 |
+| `copper.png` Copper | 6 | | `white_quartz.png` White Quartz | 40 |
+| `iron.png` Iron | 8 | | `rose_quartz.png` Rose Quartz | 55 |
+| `zinc.png` Zinc | 11 | | `peridot.png` Peridot | 60 |
+| `polyphite.png` Polyphite | 12 | | `tigers_eye.png` Tiger's Eye | 90 |
+| `rustvein.png` Rustvein | 16 | | `lapis.png` Lapis | 120 |
+| `stibnite.png` Stibnite | 24 | | `aquamarine.png` Aquamarine | 180 |
+| `silver.png` Silver | 20 | | `topaz.png` Topaz | 250 |
+| `veridium.png` Veridium | 35 | | `amethyst.png` Amethyst | 250 |
+| `gold.png` Gold | 45 | | `sapphire.png` Sapphire | 250 |
+| `cryo_core.png` Cryo-core | 80 | | `tourmaline.png` Tourmaline | 200 |
+| `hellspec.png` Hellspec | 150 | | `ruby.png` Ruby | 250 |
+| `uranium.png` Uranium | 200 | | `onyx.png` Onyx | 100 |
+| `daevorium.png` Daevorium | 400 | | `obsidian.png` Obsidian | 350 |
+|  |  | | `emerald.png` Emerald | 500 |
+|  |  | | `pearl.png` Pearl | 600 |
+|  |  | | `zapperion.png` Zapperion | 650 |
+|  |  | | `dreamstone.png` Dreamstone | 1000 |
 
-(The sell prices above are the old ones; the real ones are `sell_price` in `ORES`, then the market moves them.)
-For the upgrades, **ores** are Lead, Copper, Iron, Zinc, Rustvein, Stibnite, Silver, Gold and Uranium; everything else is a
-**gem** (the `type` column in `ORES`). Rustvein / Tourmaline / Zapperion are cut from `art_source/rustvein.png` and
-`art_source/new_gems.png` by `tools/make_ui.py`, and Lapis / Stibnite / Obsidian from `art_source/new_ores_2.png`.
+(The real prices are `sell_price` in `ORES`; then the market moves them.) For the upgrades, the left column are
+**ores** (Miner's Favor, Rocky Riches) and the right column **gems** (Jeweler's Favor): the `type` column in `ORES`.
+The round orange gem in `sheet_v3.png` (row 6) was the old Topaz art; Topaz is the orange triangle now.
 
-Every rock can drop every one of these. Cheap rocks mostly give lead / copper / iron / zinc with a tiny chance of
-anything; pricier rocks lean towards silver, gold, jade and gems. All prices and chances are in `ORES` / `ROCKS`.
-
-### Mining wall: `assets/wall/`
-| File | What it is |
-|---|---|
-| `wall_tile.png`, `<cave id>.png` | the caves' walls (`wall_tile.png` = the Old Mine; the others are cut from `art_source/cave_sheet.png` by `tools/make_ui.py`): the 32x32 tile repeated over the whole wall (yours; the original is also in `art_source/`). Make it tile seamlessly. Size on screen = `WALL_TILE_SCALE` |
-
-When the wall crumbles, every tile splits into 4 chunks that fall away, so the tile art is used for the rubble too.
 
 ### Lighter: `assets/lighter/` (cut from your sheet)
 | File | What it is |
 |---|---|
 | `lighter_0.png` ... `lighter_5.png` | the lid animation: 0 = closed, 5 = fully open. Opening plays 0 to 5, closing 5 to 0. 0 and 5 are yours; 1-4 are in-betweens made by swinging your lid around its hinge |
 | `flame_0.png` ... `flame_7.png` | your animated flame (8 frames, made by `tools/make_flame.py` from `art_source/flame_v2.png`; the Aseprite file is `art_source/flame_anim/flame_v3.aseprite`). It plays at `FLAME_FPS` and shrinks as the light dies (`FLAME_MIN_SIZE`). Its bottom (the blue gas) sits `FLAME_SINK` px down in the chimney. More or fewer frames work too |
-| `flame.png` | the old single flame, only used if there are no `flame_N.png` frames |
 
 All frames are on one 84x80 canvas so the lighter doesn't jump. Redraw any in-between by hand and keep the file name;
 add more frames (`lighter_6.png` ...) and the animation uses them too (the last one must be fully open).
@@ -256,8 +267,7 @@ in the Resurrect 64 colours, as tiny 1x art in `assets/ui/skin/`, and scaled up 
 chunky orange-wood keys with a bevel and an underside (lighter on hover, pushed in when pressed, slate when
 disabled), menus with a wooden plank frame, iron corner brackets and a dark slate inside, and sunken plum slots for
 list rows / shop cards. They're 9-sliced: the corners never stretch, the frame's plank grain repeats. Redraw the
-PNGs freely (keep the border sizes, or change `UI_SKIN_*_MARGINS`); delete them to get flat boxes back. Your first
-panels are kept in `art_source/ui/ui_panels.png` (not used).
+PNGs freely (keep the border sizes, or change `UI_SKIN_*_MARGINS`); delete them to get flat boxes back.
 
 | File | What it is |
 |---|---|
@@ -265,21 +275,17 @@ panels are kept in `art_source/ui/ui_panels.png` (not used).
 | `assets/ui/ticket.png` | the mine ticket icon (placeholder, 16x16) |
 | `assets/ui/skin/*.png` | the pixel skin (see above) |
 
-Optional (none are made yet):
+Other art:
 
-| File | What it does if it exists |
+| File | What it is |
 |---|---|
-| `assets/ui/shop.png`, `backpack.png`, `settings.png` | icon on that top-bar button |
-| `assets/ui/arrow_left.png`, `arrow_right.png` | icon on the "Mine" / "Back" screen arrows |
-| `assets/ui/coin.png` | coin icon next to your coins |
 | `assets/ui/background.png` | full-screen background behind the rock (the table; 320x180 = 1280x720 at 4x). Source: your Aseprite `Table_Background.aseprite` |
-| `assets/ui/pedestal.png` | anvil / stand drawn under the rock |
-| `icon.svg` | the game's window/app icon |
+| `icon.png`, `icon.ico` | the app icon: the Pebble (made by `tools/make_icon.py`) |
 | fonts | **BoldPixels** by YukiPixels (`assets/fonts/BoldPixels.ttf`, CC BY-SA 4.0: free for commercial use, keep the credit; it's in Settings and `BoldPixels-LICENSE.txt`). Drawn with hard pixel edges (`FONT_PIXELATED`), a dark outline and a **drop shadow** (`TEXT_SHADOW_COLOR`, `TEXT_SHADOW_OFFSET`). It's only crisp at 16, 32, 48 px, so every text size is rounded to those (`FONT_PIXEL_SIZE`); buttons use 32 (`BUTTON_FONT_SIZE`). Another font: put it in `assets/fonts/` and set `FONT_FILE` / `TITLE_FONT_FILE` (set `FONT_PIXEL_SIZE = 0` for a non-pixel font) |
 
 ### Sprite sheets: `art_source/`
-Everything is cut from `art_source/sheet_v2.png` (rocks rows 1-2, ores row 3, gems row 5). The older
-`rock_sheet.png` / `ore_sheet.png` / `ore_sheet_old.png` are kept for reference only. If you redraw the sheet, re-cut it with:
+Every rock, ore and gem is cut from `art_source/sheet_v3.png` (rocks rows 1-3, ores rows 4-5, gems rows 6-7).
+If you redraw the sheet, re-cut it with:
 ```
 py -3.12 tools/slice_sheets.py
 ```
@@ -383,21 +389,20 @@ scripts/sfx.gd         sounds + music (autoload "Sfx")
 scripts/rock_view.gd   the clickable rock: cracks, chips, breaking apart
 scripts/darkness.gdshader  the dark: whole-wall light level in steps + the glow around the lighter
 scripts/wall_view.gd   the mining wall: tap / zigzag / slash / drill / pry actions, timer + combo, pixel cracks, crumbling
-scripts/tutorial.gd    the tutorial (spotlight + steps + practice mode on the wall)
+scripts/tutorial.gd    tips as you play (spotlight + one short tip each) and the short ? tour
 scripts/game_version.gd  the version (Indev 0.1) and the GitHub repo updates come from
 scripts/updater.gd     auto-update: checks GitHub Releases, downloads + verifies + installs the new pack
 scripts/main.gd        builds the screens, top bar, shop / backpack / settings popups, drop animations
 scenes/main.tscn       main scene
 tools/slice_sheets.py  cuts art_source sheets into single PNGs
 tools/make_sounds.py   makes the placeholder sounds
-tools/tune_drops.py    balances rock quality so each rock is worth about its price
+tools/tune_drops.py    balances rock quality from the ORES / ROCKS tables (see Balancing)
 tools/make_flame.py    makes the 8-frame flame flicker (sway, colour bands, breathing gas, tongues that break off)
 tools/make_lighter.py  cuts the lighter sheet into frames + flame, makes the lid in-between frames
 tools/make_music.py    compresses + encrypts your soundtracks (tools/encrypt_music.gd does the encrypting)
 tools/engine/          the slim engine build profile (the built exe in bin/ is gitignored)
 tools/publish_update.py  publishes an update (export, self-test, commit, tag, push, GitHub Release)
 tools/make_ui.py       pixel UI skin, placeholder upgrade / ticket icons, the 3 new ore icons
-rock.gd / rock_generator.gd / *.tscn   your procedural rock generator from before (not used by the game, left as is)
 ```
 
 Save file: `%APPDATA%\Godot\app_userdata\Rich From Rocks\save.cfg` (delete it, or press Reset, to start over).

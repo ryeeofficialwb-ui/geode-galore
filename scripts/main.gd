@@ -62,6 +62,7 @@ var market_pick := ""               # the item shown on the right
 var tab_m_ores: Button
 var tab_m_rocks: Button
 var hints_btn: Button
+var tips_btn: Button                # Settings > Tips (the pop-up tips as you play)
 var _hints: Array[Control] = []     # helper texts that Settings > Hint text hides
 var bag_list: VBoxContainer
 var ore_list: VBoxContainer
@@ -76,7 +77,9 @@ var toast_tween: Tween
 var fx_layer: Control
 var flash_rect: ColorRect          # the full-screen flash when your flame reaches full blaze
 var room_bg: TextureRect           # the room behind the rock (assets/ui/background.png); slides with the rock screen
-var wall_side: ColorRect           # the strip on the right of the mine screen that holds the Back button
+var menu_bar: PanelContainer       # the top menu (coins, Shop, Market...): only on the rock screen, it slides away in the mine
+var _menu_tween: Tween
+var _slide_tween: Tween
 var _shake := 0.0
 
 
@@ -105,6 +108,12 @@ func _ready() -> void:
 	Game.trip_over.connect(_on_trip_over)
 	Game.found_rock.connect(_on_found_rock)
 	Game.found_ticket.connect(_on_found_ticket)
+	wall_view.action_started.connect(func(k: String):
+		if wall_view.practice == "":
+			tutorial.tip("act_" + k, true))  # the first time each move shows up
+	wall_view.lighter_out.connect(func(_at: Vector2):
+		if wall_view.practice == "":
+			tutorial.tip("relight", true))
 	_refresh()
 	_rebuild_shop()
 	if Game.current_rock != "":
@@ -132,8 +141,8 @@ func _ready() -> void:
 		updater.status_changed.connect(func(text: String):
 			_update_status = text
 			_update_version_label())
-	if not dev and Config.SHOW_TUTORIAL and not Game.tutorial_done:
-		tutorial.start.call_deferred()
+	if not dev and Config.SHOW_TUTORIAL:
+		tutorial.tip.call_deferred("anvil")  # tips pop up as you play (the ? button has a short tour)
 
 
 func _process(delta: float) -> void:
@@ -149,6 +158,8 @@ func _process(delta: float) -> void:
 		_update_tickets()
 	if on_wall and wall_view.active:  # about to lose: the whole screen trembles too
 		_shake = maxf(_shake, wall_view.danger() * Config.DANGER_SCREEN_SHAKE)
+		if wall_view.danger() > 0.35:
+			tutorial.tip("danger", true)
 	if _shake > 0.0:
 		_shake = move_toward(_shake, 0.0, delta * 40.0)
 		position = Vector2(randf_range(-1, 1), randf_range(-1, 1)) * _shake
@@ -169,22 +180,25 @@ func _build() -> void:
 		room_bg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 		room_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
-	var col := VBoxContainer.new()
-	col.set_anchors_preset(Control.PRESET_FULL_RECT)
-	col.add_theme_constant_override("separation", 0)
-	add_child(col)
+	# --- the two screens fill the whole window, side by side inside a clipped area. The rock screen
+	# keeps its content below the menu bar; the mine is the whole window (just the cave).
+	screens_area = Control.new()
+	screens_area.set_anchors_preset(Control.PRESET_FULL_RECT)
+	screens_area.clip_contents = true
+	add_child(screens_area)
 
-	# --- top bar: its own menu strip (stays put on both screens; nothing of the screens goes under it)
-	var menu_bar := PanelContainer.new()
+	# --- top menu bar (rock screen only: it slides up out of the way when you go down the mine).
+	# Built here, added to the window after the screens so it sits on top of them.
+	menu_bar = PanelContainer.new()
 	var mb := StyleBoxFlat.new()
 	mb.bg_color = Config.MENU_BAR_COLOR
 	mb.border_color = Config.MENU_BAR_EDGE
 	mb.border_width_bottom = 4
 	menu_bar.add_theme_stylebox_override("panel", mb)
-	col.add_child(menu_bar)
+	menu_bar.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	var top_margin := MarginContainer.new()
 	for side in ["left", "right", "top", "bottom"]:
-		top_margin.add_theme_constant_override("margin_" + side, 12)
+		top_margin.add_theme_constant_override("margin_" + side, Config.SAFE_BORDER)
 	menu_bar.add_child(top_margin)
 	var top := HBoxContainer.new()
 	top.add_theme_constant_override("separation", 10)
@@ -193,8 +207,6 @@ func _build() -> void:
 	var spacer := Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	top.add_child(spacer)
-	if ResourceLoader.exists(UI_DIR + "coin.png"):
-		top.add_child(_icon(load(UI_DIR + "coin.png"), 32))
 	coin_label = _label("", 26, Config.ACCENT)
 	top.add_child(coin_label)
 	var tk := _icon(Game.ui_texture("ticket.png"), 32)
@@ -205,25 +217,20 @@ func _build() -> void:
 	ticket_label.tooltip_text = tk.tooltip_text
 	ticket_label.mouse_filter = Control.MOUSE_FILTER_PASS
 	top.add_child(ticket_label)
-	shop_btn = _top_button("Shop", "shop", _open_shop)
+	shop_btn = _top_button("Shop", _open_shop)
 	top.add_child(shop_btn)
-	market_btn = _top_button("Market", "market", _open_market)
+	market_btn = _top_button("Market", _open_market)
 	market_btn.tooltip_text = "Market prices & guide to every ore, gem and rock"
 	top.add_child(market_btn)
-	backpack_btn = _top_button("Backpack", "backpack", _open_backpack)
+	backpack_btn = _top_button("Backpack", _open_backpack)
 	top.add_child(backpack_btn)
-	settings_btn = _top_button("Settings", "settings", _open_settings)
+	settings_btn = _top_button("Settings", _open_settings)
 	top.add_child(settings_btn)
-	help_btn = _top_button("?", "help", _open_tutorial)
+	help_btn = _top_button("?", _open_tutorial)
 	help_btn.custom_minimum_size.x = 48
 	help_btn.tooltip_text = "Tutorial"
 	top.add_child(help_btn)
 
-	# --- the two screens, side by side inside a clipped area
-	screens_area = Control.new()
-	screens_area.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	screens_area.clip_contents = true
-	col.add_child(screens_area)
 	slider = Control.new()
 	slider.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	screens_area.add_child(slider)
@@ -233,7 +240,7 @@ func _build() -> void:
 	# main screen: [arrow] [rock] [Your Rocks]
 	main_screen = MarginContainer.new()
 	for side in ["left", "right", "bottom"]:
-		main_screen.add_theme_constant_override("margin_" + side, 12)
+		main_screen.add_theme_constant_override("margin_" + side, Config.SAFE_BORDER)  # never right at the window's edge
 	slider.add_child(main_screen)
 	var body := HBoxContainer.new()
 	body.add_theme_constant_override("separation", 12)
@@ -250,19 +257,10 @@ func _build() -> void:
 	var holder := CenterContainer.new()
 	holder.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	center.add_child(holder)
-	var stack := Control.new()  # pedestal (optional art) behind the rock
+	var stack := Control.new()  # the rock (sits on the table in the room art)
 	stack.custom_minimum_size = Vector2.ONE * Config.ROCK_DISPLAY_SIZE
 	holder.add_child(stack)
 	rock_stack = stack
-	if ResourceLoader.exists(UI_DIR + "pedestal.png"):
-		var ped := TextureRect.new()
-		ped.texture = load(UI_DIR + "pedestal.png")
-		ped.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		ped.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		ped.size = Vector2(Config.ROCK_DISPLAY_SIZE, Config.ROCK_DISPLAY_SIZE * 0.35)
-		ped.position = Vector2(0, Config.ROCK_DISPLAY_SIZE * 0.85)
-		ped.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		stack.add_child(ped)
 	rock_view = RockView.new()
 	rock_view.set_anchors_preset(Control.PRESET_FULL_RECT)
 	stack.add_child(rock_view)
@@ -280,20 +278,18 @@ func _build() -> void:
 	rv.add_child(_hint(_label("Click one to put it on the anvil", 14, Config.MUTED_TEXT)))
 	bag_list = _scroll_list(rv)
 
-	# wall screen: the wall, and a strip of its own on the right for the Back button (the wall stops
-	# where the strip starts, so the button never covers a spot you need to tap)
+	# wall screen: just the cave wall, the whole window. The Back button sits on it at the right; actions
+	# keep clear of it (WALL_MARGINS) so it never covers a spot you need to tap.
 	wall_screen = Control.new()
 	wall_screen.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	slider.add_child(wall_screen)
-	wall_side = ColorRect.new()
-	wall_side.color = Config.MENU_BAR_COLOR
-	wall_screen.add_child(wall_side)
 	wall_view = WallView.new()
 	wall_view.font = font
 	wall_view.title_font = title_font
 	wall_screen.add_child(wall_view)
 	back_btn = _arrow_button(">", "Back", _go_main)
 	wall_screen.add_child(back_btn)
+	add_child(menu_bar)  # above the screens
 
 	# --- floating fx (drop pop-ups) above everything
 	fx_layer = Control.new()
@@ -505,6 +501,8 @@ func _rebuild_caves() -> void:
 		if fuel < 0.999:
 			perks += "   -   light fades %d%% faster" % roundi((1.0 / fuel - 1.0) * 100.0)
 		perks += "   -   %s%% rock per stage" % String.num(float(cv.get("stone_chance", 0.0)), 1)
+		if int(cv.get("head_start", 0)) > 0:
+			perks += "   -   harder walls (+%d)" % int(cv.get("head_start", 0))
 		info.add_child(_label(perks, 15, Config.TEXT_COLOR))
 		info.add_child(_label("Stage %d   (best %d)" % [Game.cave_stage(id), Game.cave_best(id)], 14, Config.MUTED_TEXT))
 		var price := Game.ticket_price(id)
@@ -830,6 +828,11 @@ func _build_settings() -> void:
 	hints_btn = _button("", _toggle_hints)
 	hints_btn.custom_minimum_size.y = 44
 	v.add_child(hints_btn)
+	tips_btn = _button("", func():
+		Game.set_show_tips(not Game.show_tips)
+		Sfx.play("click"))
+	tips_btn.custom_minimum_size.y = 44
+	v.add_child(tips_btn)
 	sound_btn = _button("", _toggle_sound)
 	sound_btn.custom_minimum_size.y = 44
 	v.add_child(sound_btn)
@@ -986,6 +989,8 @@ func _auto_place(prefer: String) -> void:
 	if not Config.AUTO_NEXT_ROCK or Game.rocks.is_empty():
 		rock_view.set_rock("")
 		_update_rock_text()
+		if Game.rocks.is_empty():
+			tutorial.tip("mine")  # out of rocks: the mine earns coins
 		return
 	var id: String = prefer if Game.rocks.has(prefer) else Game.rocks.keys()[0]
 	Game.place_rock(id)
@@ -1012,6 +1017,7 @@ func _on_broken(center_global: Vector2) -> void:
 		for ore_id in got:
 			_fly_drop(ore_id, got[ore_id], origin, k * 0.18)
 			k += 1
+		tutorial.tip("backpack")
 	hint_label.text = ""
 	rock_title.text = ""
 	await get_tree().create_timer(Config.NEXT_ROCK_DELAY).timeout
@@ -1157,6 +1163,7 @@ func _on_trip_over() -> void:
 func _sell(id: String, amount: int) -> void:
 	var earned := Game.sell(id, amount)
 	if earned > 0:
+		tutorial.tip("shop")
 		Sfx.play("sell")
 		show_toast("+%d coins" % earned)
 
@@ -1164,6 +1171,7 @@ func _sell(id: String, amount: int) -> void:
 func _sell_all() -> void:
 	var earned := Game.sell_all()
 	if earned > 0:
+		tutorial.tip("shop")
 		Sfx.play("sell")
 		show_toast("+%d coins" % earned)
 
@@ -1247,33 +1255,62 @@ func _slide_to(wall: bool) -> void:
 	if on_wall == wall:
 		return
 	on_wall = wall
+	if wall and Game.trip_active:
+		tutorial.tip("lighter")
 	Sfx.play("screen_slide")
 	if not shop_overlay.visible:
 		Sfx.play_music("mine" if wall else "main")
+	if _slide_tween:
+		_slide_tween.kill()
 	var tw := create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
+	_slide_tween = tw
 	tw.tween_property(slider, "position:x", screens_area.size.x if wall else 0.0, Config.SCREEN_SLIDE_TIME)
+	_show_menu_bar(not wall)
+
+
+## The top menu (coins, Shop, Market, Backpack, Settings) only belongs to the rock screen: in the mine you
+## only see the cave. It slides up out of the window and back down.
+func _show_menu_bar(on: bool, instant := false) -> void:
+	if _menu_tween:
+		_menu_tween.kill()
+	var h := menu_bar.size.y
+	if on:
+		menu_bar.visible = true
+	if instant:
+		menu_bar.position.y = 0.0 if on else -h - 8.0
+		menu_bar.visible = on
+		return
+	_menu_tween = create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
+	_menu_tween.tween_property(menu_bar, "position:y", 0.0 if on else -h - 8.0, Config.SCREEN_SLIDE_TIME)
+	if not on:
+		_menu_tween.tween_callback(func(): menu_bar.visible = false)
 
 
 ## Both screens are as big as the area under the top bar; the wall one sits to the left of the main one.
 func _layout_screens() -> void:
 	var s := screens_area.size
+	var bar_h := ceilf(menu_bar.get_combined_minimum_size().y)
 	if main_screen.size != s:
 		main_screen.size = s
 		wall_screen.size = s
 		wall_screen.position = Vector2(-s.x, 0)
-		slider.position.x = s.x if on_wall else 0.0
-		if room_bg:
-			room_bg.position = Vector2.ZERO
-			room_bg.size = s
+		if not (_slide_tween and _slide_tween.is_running()):
+			slider.position.x = s.x if on_wall else 0.0
+		if wall_view.size != s:
+			wall_view.position = Vector2.ZERO
+			wall_view.size = s
+	if main_screen.get_theme_constant("margin_top") != int(bar_h) + Config.SAFE_BORDER:
+		main_screen.add_theme_constant_override("margin_top", int(bar_h) + Config.SAFE_BORDER)  # rock screen content starts under the menu
+	if room_bg and (room_bg.position.y != bar_h or room_bg.size != Vector2(s.x, s.y - bar_h)):
+		room_bg.position = Vector2(0, bar_h)  # the room starts under the menu bar
+		room_bg.size = Vector2(s.x, s.y - bar_h)
+	if menu_bar.size.x != size.x:
+		menu_bar.size.x = size.x
+	if not (_menu_tween and _menu_tween.is_running()):
+		menu_bar.visible = not on_wall
+		menu_bar.position.y = 0.0 if not on_wall else -bar_h - 8.0
 	back_btn.size = back_btn.get_combined_minimum_size()
-	var side_w := back_btn.size.x + 24.0
-	var wall_rect := Rect2(0, 0, maxf(s.x - side_w, 0.0), s.y)
-	if wall_view.position != wall_rect.position or wall_view.size != wall_rect.size:
-		wall_view.position = wall_rect.position
-		wall_view.size = wall_rect.size
-	wall_side.position = Vector2(s.x - side_w, 0)
-	wall_side.size = Vector2(side_w, s.y)
-	back_btn.position = Vector2(s.x - side_w + 12.0, (s.y - back_btn.size.y) * 0.5)
+	back_btn.position = Vector2(s.x - back_btn.size.x - Config.SAFE_BORDER, (s.y - back_btn.size.y) * 0.5)
 
 
 func _on_action_done(perfect: bool, at: Vector2, combo: int, mult: float) -> void:
@@ -1313,6 +1350,7 @@ func _on_wall_down(at: Vector2) -> void:
 
 
 func _on_life_lost(stage_down: bool, at: Vector2) -> void:
+	tutorial.tip("lives")
 	var pos := wall_view.global_position + at - fx_layer.global_position
 	_shake = Config.SCREEN_SHAKE_ON_BREAK
 	if stage_down:
@@ -1351,6 +1389,7 @@ func _lives_text() -> String:
 
 
 func _on_stage_up(stage: int, at: Vector2) -> void:
+	tutorial.tip("lives")
 	Sfx.play("stage_up")
 	var pos := wall_view.global_position + at - fx_layer.global_position + Vector2(0, 50)
 	_float_text(pos, "STAGE %d!  Coins x%s" % [stage, str(snappedf(Game.stage_coin_mult(), 0.01))], Config.ACCENT, 0.25)
@@ -1380,6 +1419,8 @@ func _apply_hints() -> void:
 			c.visible = Game.show_hints
 	if hints_btn:
 		hints_btn.text = "Hint text: On  (click to hide)" if Game.show_hints else "Hint text: Off  (click to show)"
+	if tips_btn:
+		tips_btn.text = "Tips: On  (click to turn off)" if Game.show_tips else "Tips: Off  (click to turn on)"
 
 
 func _update_sound_btn() -> void:
@@ -1436,29 +1477,19 @@ func _button(text: String, cb: Callable) -> Button:
 
 
 ## Top-bar button. If assets/ui/<icon_name>.png exists it is shown as the button's icon.
-func _top_button(text: String, icon_name: String, cb: Callable) -> Button:
+func _top_button(text: String, cb: Callable) -> Button:
 	var b := _button(text, cb)
 	b.custom_minimum_size = Vector2(110, 44)
-	var path := UI_DIR + icon_name + ".png"
-	if ResourceLoader.exists(path):
-		b.icon = load(path)
-		b.expand_icon = true
 	return b
 
 
-## Tall arrow button at the screen edge (optional art: assets/ui/arrow_left.png / arrow_right.png).
+## Tall arrow button at the screen edge.
 func _arrow_button(arrow: String, text: String, cb: Callable) -> Button:
 	var left := arrow == "<"
 	var b := _button(("%s\n%s" % [arrow, text]) if left else ("%s\n%s" % [text, arrow]), cb)
 	b.custom_minimum_size = Vector2(72, 120)
 	b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	b.add_theme_font_size_override("font_size", Config.font_px(20))
-	var path := UI_DIR + ("arrow_left.png" if left else "arrow_right.png")
-	if ResourceLoader.exists(path):
-		b.icon = load(path)
-		b.text = text
-		b.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		b.vertical_icon_alignment = VERTICAL_ALIGNMENT_TOP
 	return b
 
 

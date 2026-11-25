@@ -7,7 +7,7 @@ extends RefCounted
 ## "RichFromRocks" - RichFromRocks.exe / .pck, the save folder - so updates and saves keep working.)
 const TITLE := "Geode Galore"
 const STAGE := "Indev"  ## shown before the number: "Indev 0.1"
-const VERSION := "0.3"
+const VERSION := "0.4"
 ## The GitHub repository whose Releases hold the update packs (RichFromRocks-update-<version>.pck plus
 ## its .sha256). It must be PUBLIC: players' games download from it without logging in.
 const RELEASES_REPO := "ryeeofficialwb-ui/rich-from-rocks"

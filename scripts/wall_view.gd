@@ -6,6 +6,12 @@ extends Control
 ##   slash  - one big, fast swipe along a long line
 ##   drill  - spam-click the same spot
 ##   pry    - hold on the wedge, let go while the gauge is in the gold zone
+##   track  - keep clicking a circle that drifts around the wall (a moving drill)
+##   swirl  - trace a spiral from the glowing dot on the outside into the middle
+##   bigslash - one huge, very fast swipe right across the wall
+##   spin   - hold the button and spin your cursor round the circle, fast (like an osu! spinner)
+## The further you get (stage + the cave's head start) the more actions a wall takes and the more move
+## styles show up (Config.ACTION_UNLOCK).
 ## It's dark: your LIGHTER follows the mouse and lights the wall around it. Its flame is the timer
 ## (it shrinks as you work; each finished action refuels it). Finish in time to keep the combo; the
 ## combo multiplies coins. Lose the combo and the lighter goes out: hit SPACE the shown number of times
@@ -25,6 +31,7 @@ signal life_lost(stage_down: bool, at: Vector2)
 signal flooded(stage_down: bool, at: Vector2)
 signal full_light   # the flame just reached full blaze (main flashes the screen)   # flicked a full lighter: half a life gone
 signal stage_up(stage: int, at: Vector2)
+signal action_started(kind: String)  # a new action is on the wall (the tips use it)
 
 const SAMPLES := 48
 const STEP := 6.0               # px between checks while tracing (fast mouse moves are filled in)
@@ -40,6 +47,10 @@ const KIND_INFO := {            # title, hint
 	"slash": ["SLASH!", "One fast swipe from the glowing dot"],
 	"drill": ["DRILL!", "Spam-click the same spot"],
 	"pry": ["PRY!", "Hold on the wedge, let go in the gold zone"],
+	"track": ["TRACK!", "Keep clicking the moving circle"],
+	"swirl": ["SWIRL!", "Trace the spiral from the glowing dot into the middle"],
+	"bigslash": ["SLASH IT ALL!", "One huge, fast swipe right across the wall"],
+	"spin": ["SPIN!", "Hold the button and spin round and round, fast!"],
 }
 
 var tile_tex: Texture2D
@@ -66,7 +77,6 @@ var relight_hits := 0
 var relight_left := 0.0
 var dev_mouse := Vector2(-1, -1)  # screenshot demo: fake mouse position
 var _lighter_frames: Array[Texture2D] = []
-var _flame_tex: Texture2D        # old single flame (used only if there are no flame_N.png frames)
 var _flame_frames: Array[Texture2D] = []
 var _hold := 0.0                 # seconds the flame stays at full blaze before it starts dying again
 var _lid := 0.0                 # 0 closed .. 1 open (animates)
@@ -123,6 +133,21 @@ var _holding := false
 var _fill := 0.0
 var _zone := Vector2.ZERO               # gold zone (from, to) on the 0..1 gauge
 var _strays := 0                        # misses during the action: no PERFECT
+# spin
+var _spin_c := Vector2.ZERO
+var _spin_need := 3.0                   # turns needed
+var _spin_net := 0.0                    # radians turned (signed: wiggling back and forth cancels out)
+var _spin_last := 0.0
+var _spin_have := false                 # _spin_last is valid
+var _spinning := false                  # button held
+var _spin_started := false              # the timer starts at your first press
+var _spin_t := 0.0
+var _spin_sound := 0
+# track (the moving drill)
+var _track_rect := Rect2()
+var _track_f := Vector2.ONE
+var _track_ph := Vector2.ZERO
+var _track_time := 0.0
 var _jolt := 0.0
 # looks
 var _marks: Array[Dictionary] = []     # what earlier actions left on this wall
@@ -144,8 +169,6 @@ func _ready() -> void:
 		if not ResourceLoader.exists(f):
 			break
 		_lighter_frames.append(load(f))
-	if ResourceLoader.exists(Config.LIGHTER_DIR + "flame.png"):
-		_flame_tex = load(Config.LIGHTER_DIR + "flame.png")
 	for i in 64:
 		var f := Config.LIGHTER_DIR + "flame_%d.png" % i
 		if not ResourceLoader.exists(f):
@@ -215,6 +238,8 @@ func combo_multiplier() -> float:
 ## Where actions may appear: away from the edges, the timer at the top and the Back button.
 func _area() -> Rect2:
 	var m: Vector4 = Config.WALL_MARGINS  # left, top, right, bottom
+	var b := float(Config.SAFE_BORDER)
+	m = Vector4(maxf(m.x, b), maxf(m.y, b), maxf(m.z, b), maxf(m.w, b))
 	return Rect2(Vector2(m.x, m.y), size - Vector2(m.x + m.z, m.y + m.w + reserve_bottom))
 
 
@@ -243,7 +268,8 @@ func new_wall() -> void:
 	_falling = false
 	_pieces.clear()
 	_marks.clear()
-	actions_total = randi_range(Config.WALL_ACTIONS_MIN, Config.WALL_ACTIONS_MAX)
+	var extra := mini(floori((Game.skill_stage() - 1) * Config.WALL_ACTIONS_PER_STAGE), Config.WALL_ACTIONS_EXTRA_MAX)
+	actions_total = randi_range(Config.WALL_ACTIONS_MIN, Config.WALL_ACTIONS_MAX) + maxi(extra, 0)
 	actions_left = actions_total
 	rise = 0.0
 	create_tween().tween_property(self, "rise", 1.0, 0.55).set_trans(Tween.TRANS_BOUNCE).set_ease(Tween.EASE_OUT)
@@ -303,13 +329,28 @@ func new_action(force := "") -> void:
 			_spot = _free_point(area.grow(-60), Config.PRY_RADIUS)
 			var z := randf_range(Config.PRY_ZONE_MIN, Config.PRY_ZONE_MAX)
 			_zone = Vector2(z, minf(z + Config.PRY_ZONE_SIZE, 0.97))
+		"swirl":
+			_set_path(_swirl_points(area))
+			_build_crack(Config.SWIRL_CRACK_WIDTH)
+		"bigslash":
+			_set_path(_bigslash_points(area))
+			_build_crack(Config.SLASH_CRACK_WIDTH + 1)
+		"spin":
+			_spin_c = _free_point(_inner(area, Config.SPIN_RADIUS + 20.0), Config.SPIN_RADIUS + 20.0)
+			_spin_need = roundf(randf_range(Config.SPIN_TURNS_MIN, Config.SPIN_TURNS_MAX) * 2.0) / 2.0
+			_spot = _spin_c
+		"track":
+			_setup_track(area)
+	if kind != "":
+		action_started.emit(kind)
 	queue_redraw()
 
 
 func _pick_kind() -> String:
 	var pool := {}
+	var skill := Game.skill_stage()
 	for k in Config.ACTION_WEIGHTS:
-		if KIND_INFO.has(k) and float(Config.ACTION_WEIGHTS[k]) > 0.0:
+		if KIND_INFO.has(k) and float(Config.ACTION_WEIGHTS[k]) > 0.0 and skill >= int(Config.ACTION_UNLOCK.get(k, 1)):
 			pool[k] = float(Config.ACTION_WEIGHTS[k])
 	if pool.is_empty():
 		return "tap"
@@ -342,6 +383,23 @@ func _reset_input() -> void:
 	_max_dev = 0.0
 	_progress = 0.0
 	_sound_s = 0.0
+	_spin_reset()
+	_track_time = 0.0
+
+
+func _spin_reset() -> void:
+	_spinning = false
+	_spin_have = false
+	_spin_started = false
+	_spin_net = 0.0
+	_spin_t = 0.0
+	_spin_sound = 0
+
+
+## r shrunk by m on every side (or a tiny box in its middle if that leaves nothing).
+func _inner(r: Rect2, m: float) -> Rect2:
+	var g := r.grow(-m)
+	return g if g.size.x > 1.0 and g.size.y > 1.0 else Rect2(r.get_center(), Vector2.ONE)
 
 
 func _rand_in(r: Rect2) -> Vector2:
@@ -429,6 +487,90 @@ func _slash_points(area: Rect2) -> PackedVector2Array:
 	return pts
 
 
+## A spiral from the outside in. Checkpoints every quarter turn, so you can't cut across the middle.
+func _swirl_points(area: Rect2) -> PackedVector2Array:
+	var pts := PackedVector2Array()
+	for attempt in 60:
+		var turns := randf_range(Config.SWIRL_TURNS_MIN, Config.SWIRL_TURNS_MAX)
+		var r0 := randf_range(Config.SWIRL_RADIUS_MIN, Config.SWIRL_RADIUS_MAX)
+		var c := _free_point(_inner(area, r0), r0)
+		var a0 := randf() * TAU
+		var dir := 1.0 if randf() < 0.5 else -1.0
+		var n := maxi(24, ceili(turns * 72.0))
+		pts = PackedVector2Array()
+		for i in n + 1:
+			var u := float(i) / n
+			pts.append(c + Vector2.RIGHT.rotated(a0 + dir * TAU * turns * u) * lerpf(r0, Config.SWIRL_INNER_RADIUS, u))
+		_corners = PackedVector2Array()
+		_corner_s = PackedFloat32Array()
+		var every := maxi(1, roundi(float(n) / maxf(turns * 4.0, 1.0)))
+		var s := 0.0
+		for i in range(1, pts.size()):
+			s += pts[i - 1].distance_to(pts[i])
+			if i % every == 0 and i < pts.size() - 1:
+				_corners.append(pts[i])
+				_corner_s.append(s)
+		if _all_inside(pts, area):
+			break
+	return pts
+
+
+## Edge to edge across the whole wall (its left end stays above the lighter), maybe a little bent.
+func _bigslash_points(area: Rect2) -> PackedVector2Array:
+	var pts := PackedVector2Array()
+	var a_in := _inner(area, 4.0)
+	var box := _lighter_box().grow(30)
+	for attempt in 60:
+		var y_hi := maxf(a_in.position.y, minf(a_in.end.y, box.position.y))
+		var a := Vector2(a_in.position.x, randf_range(a_in.position.y, y_hi))
+		var b := Vector2(a_in.end.x, randf_range(a_in.position.y, a_in.end.y))
+		var bend := (b - a).orthogonal().normalized() * randf_range(-1.0, 1.0) * a_in.size.y * Config.BIGSLASH_CURVE
+		var ctrl := a.lerp(b, 0.5) + bend
+		pts = PackedVector2Array()
+		for i in SAMPLES + 1:
+			var t := float(i) / SAMPLES
+			pts.append(a.lerp(ctrl, t).lerp(ctrl.lerp(b, t), t))
+		if randf() < 0.5:
+			pts.reverse()  # right to left
+		if _all_inside(pts, area):
+			break
+	return pts
+
+
+## The moving drill drifts around in the bigger free part of the wall: right of the lighter, or above it.
+func _setup_track(area: Rect2) -> void:
+	var r := Config.TRACK_RADIUS
+	var box := _lighter_box().grow(r)
+	var right := Rect2(Vector2(maxf(area.position.x, box.end.x), area.position.y), Vector2.ZERO)
+	right.end = area.end
+	var above := Rect2(area.position, Vector2(area.size.x, minf(area.end.y, box.position.y) - area.position.y))
+	var rr := right
+	if above.size.x > 0.0 and above.size.y > 0.0 and (right.size.x <= 0.0 or right.size.y <= 0.0 or above.get_area() > right.get_area()):
+		rr = above
+	if rr.size.x <= 0.0 or rr.size.y <= 0.0:
+		rr = area
+	_track_rect = _inner(rr, r)
+	_track_f = Vector2(randf_range(0.7, 1.0), randf_range(1.1, 1.5))
+	if randf() < 0.5:
+		_track_f = Vector2(_track_f.y, _track_f.x)
+	_track_ph = Vector2(randf() * TAU, randf() * TAU)
+	_track_time = 0.0
+	_clicks_need = randi_range(Config.TRACK_CLICKS_MIN, Config.TRACK_CLICKS_MAX)
+	_spot = _track_pos_at(0.0)
+
+
+## Where the moving drill is t seconds into the action (a smooth figure-of-eight-ish loop).
+func _track_pos_at(t: float) -> Vector2:
+	var h := _track_rect.size * 0.5
+	var sp := Config.TRACK_SPEED / maxf(Game.stage_fuel_factor(), 0.3) / maxf(h.length(), 1.0)
+	return _track_rect.get_center() + Vector2(h.x * sin(_track_f.x * t * sp + _track_ph.x), h.y * sin(_track_f.y * t * sp + _track_ph.y))
+
+
+## Seconds you get to finish a spin (shorter on later stages / harder caves).
+func _spin_time() -> float:
+	return Config.SPIN_TIME * lerpf(1.0, Game.stage_fuel_factor(), 0.5)
+
+
 func _densify(corners: PackedVector2Array) -> PackedVector2Array:
 	var out := PackedVector2Array([corners[0]])
 	for i in corners.size() - 1:
@@ -500,7 +642,7 @@ func _action_center() -> Vector2:
 			for tg in _targets:
 				c += tg.p
 			return c / maxf(_targets.size(), 1)
-		"zigzag", "slash":
+		"zigzag", "slash", "swirl", "bigslash":
 			return _point_at(_total * 0.5) if not _path.is_empty() else size * 0.5
 	return _spot
 
@@ -638,6 +780,9 @@ func _gui_input(event: InputEvent) -> void:
 	elif event is InputEventMouseMotion and _tracing:
 		drag(event.position)
 		accept_event()
+	elif event is InputEventMouseMotion and _spinning:
+		_spin_move(event.position)
+		accept_event()
 
 
 func press(p: Vector2) -> void:
@@ -646,7 +791,7 @@ func press(p: Vector2) -> void:
 	match kind:
 		"tap":
 			_tap(p)
-		"zigzag", "slash":
+		"zigzag", "slash", "swirl", "bigslash":
 			if p.distance_to(_path[0]) > Config.SLICE_START_RADIUS:
 				missed.emit("Start at the glowing dot!", p)
 				return
@@ -659,6 +804,13 @@ func press(p: Vector2) -> void:
 			_sound_s = 0.0
 		"drill":
 			_drill(p)
+		"track":
+			_track_click(p)
+		"spin":
+			_spinning = true
+			_spin_started = true
+			_spin_have = false
+			_spin_move(p)
 		"pry":
 			if p.distance_to(_spot) > Config.PRY_RADIUS:
 				missed.emit("Hold on the wedge!", p)
@@ -668,7 +820,10 @@ func press(p: Vector2) -> void:
 
 
 func release(p: Vector2) -> void:
-	if _tracing:
+	if _spinning:
+		_spinning = false  # letting go just stops the spin counting (the clock keeps going)
+		_spin_have = false
+	elif _tracing:
 		_miss("Too short!", p)
 	elif _holding:
 		_holding = false
@@ -767,6 +922,48 @@ func _drill(p: Vector2) -> void:
 	queue_redraw()
 
 
+## The moving drill: click it wherever it is right now.
+func _track_click(p: Vector2) -> void:
+	if p.distance_to(_spot) > Config.TRACK_RADIUS:
+		_stray(p, "Missed it!", Config.TRACK_MISS_WICK_COST)
+		return
+	_clicks += 1
+	_jolt = 1.0
+	_spray(_spot, 5)
+	Sfx.play("drill", 0.85 + 0.5 * float(_clicks) / _clicks_need)
+	_marks.append({"t": "cells", "cells": _burst(_spot, 3, 0)})
+	if _clicks >= _clicks_need:
+		_marks.append({"t": "hole", "p": _spot, "r": Config.TRACK_RADIUS * 0.4, "cells": _burst(_spot, 6, 0)})
+		_complete(_strays == 0, _spot)
+	queue_redraw()
+
+
+## Spinning: every bit you turn round the middle counts (either way round; turning back takes it off).
+func _spin_move(p: Vector2) -> void:
+	var v := p - _spin_c
+	if v.length() < Config.SPIN_DEAD_ZONE:
+		_spin_have = false  # right in the middle you can't tell which way you're going
+		return
+	var a := v.angle()
+	if _spin_have:
+		_spin_net += wrapf(a - _spin_last, -PI, PI)
+	_spin_last = a
+	_spin_have = true
+	var turns := absf(_spin_net) / TAU
+	var quarter := floori(turns * 4.0)
+	if quarter > _spin_sound:
+		_spin_sound = quarter
+		Sfx.play("drill", 0.8 + 0.6 * minf(turns / maxf(_spin_need, 0.5), 1.0))
+		_spray(p, 2)
+	if turns >= _spin_need:
+		var perfect := _spin_t <= _spin_time() * Config.SPIN_PERFECT_PART and _strays == 0
+		_marks.append({"t": "cells", "cells": _burst(_spin_c, 10, 2)})
+		_spray(_spin_c, 18)
+		Sfx.play("pry")
+		_complete(perfect, _spin_c)
+	queue_redraw()
+
+
 func _pry_out(perfect: bool) -> void:
 	var dir := Vector2.DOWN.rotated(randf_range(-0.6, 0.6))
 	_marks.append({"t": "cells", "cells": _crack_line(_spot - dir * 34.0, _spot + dir * 34.0, 3)})
@@ -778,9 +975,9 @@ func _pry_out(perfect: bool) -> void:
 func drag(p: Vector2) -> void:
 	if not _tracing:
 		return
-	var slash := kind == "slash"
-	var ok_tol := Config.SLASH_OK_TOLERANCE if slash else Config.ZIGZAG_OK_TOLERANCE
-	var ahead := Config.SLASH_LOOKAHEAD if slash else Config.ZIGZAG_LOOKAHEAD
+	var tc := _trace_cfg()
+	var ok_tol: float = tc.x
+	var ahead: float = tc.y
 	var steps := maxi(1, ceili(_last_p.distance_to(p) / STEP))
 	for k in steps:
 		var q := _last_p.lerp(p, float(k + 1) / steps)
@@ -801,15 +998,27 @@ func drag(p: Vector2) -> void:
 		Sfx.play("crack", 0.9 + 0.4 * _progress / maxf(_total, 1.0))
 		_spray(_point_at(_progress), 2)
 	if _progress >= _total * Config.SLICE_FINISH:
-		var perfect := _max_dev <= (Config.SLASH_PERFECT_TOLERANCE if slash else Config.ZIGZAG_PERFECT_TOLERANCE)
+		var perfect := _max_dev <= tc.z
 		_marks.append({"t": "cells", "cells": _crack_cells.duplicate()})
 		_spray(p, 8)
 		_complete(perfect, p)
 	queue_redraw()
 
 
-func _stray(p: Vector2, reason: String) -> void:
-	_burn_wick(Config.MISS_WICK_COST)
+## How strict tracing this line is: (miss distance, line ahead that counts, perfect distance) in px.
+func _trace_cfg() -> Vector3:
+	match kind:
+		"slash":
+			return Vector3(Config.SLASH_OK_TOLERANCE, Config.SLASH_LOOKAHEAD, Config.SLASH_PERFECT_TOLERANCE)
+		"bigslash":
+			return Vector3(Config.BIGSLASH_OK_TOLERANCE, Config.BIGSLASH_LOOKAHEAD, Config.BIGSLASH_PERFECT_TOLERANCE)
+		"swirl":
+			return Vector3(Config.SWIRL_OK_TOLERANCE, Config.SWIRL_LOOKAHEAD, Config.SWIRL_PERFECT_TOLERANCE)
+	return Vector3(Config.ZIGZAG_OK_TOLERANCE, Config.ZIGZAG_LOOKAHEAD, Config.ZIGZAG_PERFECT_TOLERANCE)
+
+
+func _stray(p: Vector2, reason: String, cost := -1.0) -> void:
+	_burn_wick(Config.MISS_WICK_COST if cost < 0.0 else cost)
 	_strays += 1
 	_miss_flash = 0.25
 	if Config.MISS_BREAKS_COMBO:
@@ -1236,8 +1445,16 @@ func _process(delta: float) -> void:
 					_tap_miss(tg, "Missed!")
 		if _tracing:
 			_swipe_t += delta
-			if kind == "slash" and _swipe_t > Config.SLASH_SWIPE_TIME:
+			if (kind == "slash" and _swipe_t > Config.SLASH_SWIPE_TIME) or (kind == "bigslash" and _swipe_t > Config.BIGSLASH_SWIPE_TIME):
 				_miss("Too slow, swipe it!", _last_p)
+		if kind == "track":
+			_track_time += delta
+			_spot = _track_pos_at(_track_time)
+		if kind == "spin" and _spin_started:
+			_spin_t += delta
+			if _spin_t > _spin_time():
+				_spin_reset()
+				_miss("Too slow, spin faster!", _spin_c)
 		if _holding:
 			_fill += delta / Config.PRY_FILL_TIME
 			if _fill >= 1.0:
@@ -1387,9 +1604,11 @@ func _draw() -> void:
 		var col := Config.SLICE_MISS_COLOR if _miss_flash > 0.0 else Config.SLICE_GUIDE_COLOR
 		match kind:
 			"tap": _draw_tap(col)
-			"zigzag", "slash": _draw_path(col)
+			"zigzag", "slash", "swirl", "bigslash": _draw_path(col)
 			"drill": _draw_drill(col)
 			"pry": _draw_pry(col)
+			"track": _draw_track(col)
+			"spin": _draw_spin(col)
 	_draw_chips(false)
 
 
@@ -1542,9 +1761,6 @@ func _draw_lighter() -> void:
 		var fs := (ftex.get_size() * sc * k).round()
 		var bottom := base + Vector2(0, Config.FLAME_SINK * sc)
 		_ci.draw_texture_rect(ftex, Rect2((bottom - Vector2(fs.x * 0.5, fs.y)).round(), fs), false)
-	elif _flame_tex:
-		var fs := (_flame_tex.get_size() * sc * Vector2(0.85 + 0.15 * k, k)).round()
-		_ci.draw_texture_rect(_flame_tex, Rect2((base - Vector2(fs.x * 0.5, fs.y)).round(), fs), false)
 
 
 func _draw_mark(m: Dictionary) -> void:
@@ -1598,7 +1814,7 @@ func _draw_tap(col: Color) -> void:
 
 
 func _draw_path(col: Color) -> void:
-	var slash := kind == "slash"
+	var slash := kind == "slash" or kind == "bigslash"
 	var g := _g()
 	var pulse := 0.65 + 0.35 * sin(_t * 6.0)
 	# guide dots ahead of the crack, on the pixel grid
@@ -1649,6 +1865,40 @@ func _draw_drill(col: Color) -> void:
 	var pulse := 1.0 + 0.08 * sin(_t * 14.0)
 	_pixel_ring(at, r * 0.62 * pulse, 1, col)
 	_text(str(_clicks_need - _clicks), at + Vector2(0, 11), 30, Config.TEXT_COLOR, title_font)
+
+
+## The moving drill: a ring that fills as you click it, with faint dots showing where it's heading.
+func _draw_track(col: Color) -> void:
+	var r := Config.TRACK_RADIUS
+	var at := _spot + Vector2(randf_range(-1, 1), randf_range(-1, 1)) * _jolt * 5.0
+	var frac := float(_clicks) / maxf(_clicks_need, 1)
+	for k in range(1, 4):
+		_pixel_disc(_track_pos_at(_track_time + k * 0.12), r * 0.16, Color(col, 0.3 - k * 0.07))
+	_pixel_disc(at, r, Color(Config.TEXT_OUTLINE_COLOR, 0.45))
+	_pixel_ring(at, r, 3, Color(col, 0.7))
+	if frac > 0.0:
+		_pixel_arc(at, r, -PI * 0.5, -PI * 0.5 + TAU * frac, 3, Config.SLICE_TRAIL_COLOR)
+	_text(str(_clicks_need - _clicks), at + Vector2(0, 11), 30, Config.TEXT_COLOR, title_font)
+
+
+## The spinner: a big ring that fills as you turn, a marker going round, turns left in the middle.
+func _draw_spin(col: Color) -> void:
+	var r := Config.SPIN_RADIUS
+	var frac := clampf(absf(_spin_net) / TAU / maxf(_spin_need, 0.5), 0.0, 1.0)
+	_pixel_arc(_spin_c, r + _g() * 2.0, 0.0, TAU, 4, Color(0, 0, 0, 0.5))
+	_pixel_ring(_spin_c, r, 2, Color(col, 0.45))
+	if frac > 0.0:
+		_pixel_arc(_spin_c, r, -PI * 0.5, -PI * 0.5 + TAU * frac, 3, Config.SLICE_TRAIL_COLOR)
+	var a := _spin_last if _spin_have else _t * 3.0
+	_pixel_disc(_spin_c + Vector2.RIGHT.rotated(a) * r, 9.0, Config.SLICE_TRAIL_COLOR if _spinning else col)
+	_pixel_disc(_spin_c, 6.0, col)
+	var left := maxf(_spin_need - absf(_spin_net) / TAU, 0.0)
+	_text(String.num(ceilf(left * 2.0) / 2.0, 1).trim_suffix(".0"), _spin_c + Vector2(0, 12), 30, Config.TEXT_COLOR, title_font)
+	if _spin_started:
+		var tl := maxf(_spin_time() - _spin_t, 0.0)
+		_text("%.1fs" % tl, _spin_c + Vector2(0, r + 34), 18, Config.SLICE_MISS_COLOR if tl < 1.0 else Config.TEXT_COLOR, font)
+	else:
+		_text("HOLD & SPIN", _spin_c + Vector2(0, r + 34), 20, Config.TEXT_COLOR, font)
 
 
 func _draw_pry(col: Color) -> void:
@@ -1729,7 +1979,7 @@ func _draw_lives() -> void:
 	_text("LIVES", Vector2(x0 - 40, 50), 18, Config.TEXT_COLOR, font)
 	var dim := Color(0.25, 0.22, 0.22, 0.8)
 	for i in slots:
-		var r := Rect2(Vector2(x0 + i * 50.0, 14), region.size)
+		var r := Rect2(Vector2(x0 + i * 50.0, maxf(14.0, float(Config.SAFE_BORDER))), region.size)
 		var left := Game.lives - i  # >= 1 full, 0.5 half, <= 0 lost
 		if left >= 1.0:
 			_ci.draw_texture_rect_region(tex, r, region, Color.WHITE)

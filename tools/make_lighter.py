@@ -6,7 +6,7 @@ in-between frames of the lid opening (the sheet only has "open + lit" and "close
 Writes assets/lighter/:
     lighter_0.png ... lighter_5.png   lid closed (0) -> fully open (5), no flame. Opening plays 0->5,
                                       closing plays 5->0. Redraw any of them by hand if you like.
-    flame.png                         the flame on its own (the game shrinks / flickers it as your timer)
+(The flame itself is the 8-frame animation flame_0.png ... flame_7.png, made by tools/make_flame.py.)
 All frames share one canvas so the lighter doesn't jump around while it animates.
 """
 from pathlib import Path
@@ -62,7 +62,6 @@ def main():
     frames.append(open_unlit)
     for i, f in enumerate(frames):
         f.save(OUT / f"lighter_{i}.png")
-    flame.save(OUT / "flame.png")
     # flame anchor (bottom-centre of the flame on the canvas) for reference
     fb = open_f.crop(FLAME_BOX).getbbox()
     print("frames:", len(frames), "flame size:", flame.size,
