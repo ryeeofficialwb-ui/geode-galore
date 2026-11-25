@@ -1692,6 +1692,24 @@ func _dev_shots(dir: String) -> void:
 		var tp: Vector2 = wall_view.flick_tempo()
 		tempos.append("%s %.2fs (zone %d ms)" % [k, tp.x, roundi(tp.x * tp.y * 1000.0)])
 	print("flick tempos: ", ", ".join(tempos))
+	# perfect flicking must out-gain the fade at every tempo and stage
+	var stage_keep := Game.stage
+	for st in [1, 5, 10]:
+		Game.stage = st
+		var rates := []
+		for k in ["", "tap", "zigzag", "slash", "drill", "pry"]:
+			if k != "":
+				wall_view.new_action(k)
+			else:
+				wall_view.kind = ""
+			var gain := 0.0
+			for i in 200:
+				gain += wall_view.flick_gain()
+			var per_sec := gain / 200.0 / wall_view.flick_tempo().x
+			var fade := 1.0 / (Config.LIGHT_DURATION * Game.stage_fuel_factor())
+			rates.append("%s %+.1f%%/s (%.1f%%/flick)" % [k if k != "" else "idle", (per_sec - fade) * 100.0, gain / 2.0])
+		print("stage %d, net light with perfect flicks: %s" % [st, ", ".join(rates)])
+	Game.stage = stage_keep
 	wall_view.new_action("drill")
 	await get_tree().create_timer(0.3).timeout
 	shot.call("17e_flick_bar")

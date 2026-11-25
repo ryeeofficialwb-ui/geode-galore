@@ -56,7 +56,9 @@ Short on coins? Click **< Mine** on the left to go to the mining wall and earn c
   bottom; flick when it reaches the **gold zone** near the top ("FLICK!"). Too soon (spamming) or too late fails:
   no light, a red flash, and it **burns some wick** (`FLICK_FAIL_WICK_COST`). Every minigame charges the bar at its
   own tempo (`FLICK_TEMPO`): pry is slow (1.5 s, the easiest to flick well), zigzag steady, drill and tap quick,
-  slash very fast (0.36 s, about a 0.1 s window). So you choose: take your time on a slow one and flick up lots of
+  slash very fast (0.36 s, about a 0.1 s window). A slow bar gives fewer flicks, so each good flick gives more light:
+  timed perfectly, flicking brings the light back 1.8x as fast as it fades at any tempo (`FLICK_GAIN`), and never
+  less than 3-5% a flick. So you choose: take your time on a slow one and flick up lots of
   light, or rush the fast ones because flicking there is hard - and relighting is harder. Later stages speed the
   bar up a bit (`FLICK_STAGE_SPEEDUP`). While the flame is at full blaze the bar shows FULL (flicking floods it).
 

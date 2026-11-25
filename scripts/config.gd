@@ -270,6 +270,9 @@ const FLICK_TEMPO := {  # configurable
 	"pry": [1.5, 0.18],      # slow, narrow zone
 }
 const FLICK_ZONE_END := 0.94  # configurable  (the gold zone ends here on the bar; above it is "too late")
+## A slow bar means fewer flicks, so each good flick gives more light: hitting every flick brings the light
+## back FLICK_GAIN times as fast as it fades, whatever the tempo (but never less than RECHARGE_MIN..MAX %).
+const FLICK_GAIN := 1.8  # configurable  (1.0 = perfect flicking only just keeps up; higher = easier)
 const FLICK_FAIL_WICK_COST := 0.06  # configurable  (wick a mistimed flick burns)
 const FLICK_STAGE_SPEEDUP := 0.5  # configurable  (0 = same tempo every stage, 1 = speeds up as much as the light fades)
 const FLICK_BAR_HEIGHT := 150.0  # configurable  (px)

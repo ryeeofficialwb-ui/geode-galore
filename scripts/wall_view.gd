@@ -914,7 +914,7 @@ func flick() -> void:
 				return
 			_fm = 0.0
 			_fm_ok = 0.25
-			light = minf(light + randf_range(Config.RECHARGE_MIN, Config.RECHARGE_MAX) / 100.0, wick)
+			light = minf(light + flick_gain(), wick)
 			if light >= 1.0:
 				_full_blaze()
 			_sparks(4)
@@ -948,6 +948,15 @@ func flick() -> void:
 func flick_tempo() -> Vector2:
 	var t: Array = Config.FLICK_TEMPO.get(kind if kind != "" and practice != "flick" else "", Config.FLICK_TEMPO[""])
 	return Vector2(maxf(float(t[0]) * lerpf(1.0, Game.stage_fuel_factor(), Config.FLICK_STAGE_SPEEDUP), 0.15), float(t[1]))
+
+
+## Light one good flick adds. A slow bar gives fewer flicks, so each one gives more: timed perfectly,
+## flicking always brings light back FLICK_GAIN times as fast as it fades (at any tempo and stage).
+## Never less than RECHARGE_MIN..MAX %.
+func flick_gain() -> float:
+	var fade_per_sec := 1.0 / maxf(Config.LIGHT_DURATION * Game.stage_fuel_factor(), 0.1)
+	var by_tempo := fade_per_sec * Config.FLICK_GAIN * flick_tempo().x * randf_range(0.85, 1.15)
+	return maxf(by_tempo, randf_range(Config.RECHARGE_MIN, Config.RECHARGE_MAX) / 100.0)
 
 
 ## The gold zone on the FLICK bar (from, to), at the top end of the bar.
