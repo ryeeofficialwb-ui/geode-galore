@@ -7,7 +7,7 @@ extends Control
 
 signal closed
 
-const PANEL_W := 820.0
+const PANEL_W := 760.0
 const PANEL_H := 170.0
 
 var main                        # scripts/main.gd (set before adding the tutorial)
@@ -111,13 +111,13 @@ func _make_steps() -> void:
 		{"title": "Selling", "screen": "main", "target": func(): return m.backpack_btn.get_global_rect().grow(6),
 			"text": "Open the Backpack to sell your ores and gems for coins: one at a time, a whole stack with All, or everything at once."},
 		{"title": "The Shop", "screen": "main", "target": func(): return m.shop_btn.get_global_rect().merge(m.coin_label.get_global_rect()).grow(6),
-			"text": "Spend your coins in the Shop. It has a few kinds of rocks with limited stock and restocks every %d minutes with new rocks. Every restock the MARKET moves too: rock prices and what ores and gems sell for go up and down (from 10%% to 200%% of normal). Sell when the price is green!" % int(Config.RESTOCK_SECONDS / 60.0)},
+			"text": "Spend your coins in the Shop. It has a few kinds of rocks with limited stock and restocks every %d minutes with new rocks. Every restock the MARKET moves too: rock prices and what ores and gems sell for go up and down (from 10%% to 200%% of normal). Sell when the price is green! The Market button lists today's price of everything, and tells you about every ore and gem." % int(Config.RESTOCK_SECONDS / 60.0)},
 		{"title": "The Dwarven Shop", "screen": "main", "target": func(): return m.shop_btn.get_global_rect().merge(m.ticket_icon.get_global_rect()).grow(6),
 			"text": "The Shop's second tab is the Dwarven Shop. Buy UPGRADES there (better ore and gem chances, more ores, more mine coins, lucky sales) and TICKETS for the mine: one free ticket every %d minutes, or buy one for %d coins. Your tickets are shown next to your coins." % [int(Config.FREE_TICKET_SECONDS / 60.0), Config.TICKET_PRICE]},
 		{"title": "Out of coins?", "screen": "main", "target": func(): return m.mine_btn.get_global_rect().grow(6),
 			"text": "The Mine arrow takes you to the mining wall, where you earn coins with quick actions. Going down costs a ticket, and the trip lasts until you run out of lives. This tour is free though - let's go there now."},
 		{"title": "It's dark down here", "screen": "wall", "practice": "flick",
-			"text": "You hold your lighter like a torch. While it's lit the whole wall is lit, but the flame slowly fades and the wall gets darker: that's your TIMER. Every flick of SPACE (or tap on the lighter) only adds a little light, so keep flicking while you work. When it's back to full it flashes and burns steady for a few seconds: flick it THEN and you flood it, half a life gone! Try it: let it dim, then flick it back up."},
+			"text": "You hold your lighter like a torch. While it's lit the whole wall is lit, but the flame slowly fades and the wall gets darker: that's your TIMER. A flick of SPACE (or a tap on the lighter) only adds a little light, and only if it's TIMED: the FLICK bar next to the lighter charges up - flick when it reaches the gold zone. Too soon (spamming) or too late fails and burns some wick. Every action has its own tempo: some slow, some very fast. When it's back to full it flashes and burns steady for a few seconds: flick it THEN and you flood it, half a life gone! Try it: let it dim, then flick it back up."},
 		{"title": "Mind the wick", "screen": "wall", "target": wick_box,
 			"text": "That's your WICK. Flicking alone won't keep you alive: while an action waits on you the wick burns down, and the light can't be flicked back above it, so the wall keeps getting darker. Only FINISHING an action refills it; sloppy motions burn some off. If it burns out, the lighter dies. When you're close to losing, the lighter starts to shake."},
 		{"title": "The mining wall", "screen": "wall", "target": wall_hud,

@@ -28,10 +28,12 @@ ORE_CURVE = [
     ("zinc", "Zinc", 11, False, "#8fd3c9", 10.0, 14.0, 1, 2),
     ("rhodonite", "Rhodonite", 14, False, "#ec85a6", 4.0, 12.0, 1, 1),
     ("rustvein", "Rustvein", 16, False, "#f57d4a", 3.0, 13.0, 1, 2),
+    ("stibnite", "Stibnite", 24, False, "#c7dcd0", 2.0, 12.0, 1, 2),
     ("silver", "Silver", 20, False, "#dfe9ec", 2.5, 16.0, 1, 1),
     ("jade", "Jade", 30, False, "#62cf9e", 1.2, 11.0, 1, 1),
     ("gold", "Gold", 45, False, "#ffd84a", 0.8, 12.0, 1, 1),
     ("peridot", "Peridot", 60, True, "#aee35c", 0.2, 4.0, 1, 1),
+    ("lapis", "Lapis", 120, True, "#4d9be6", 0.1, 3.0, 1, 1),
     ("topaz", "Topaz", 250, True, "#ffb347", 0.12, 3.5, 1, 1),
     ("uranium", "Uranium", 200, True, "#6cff5a", 0.08, 3.0, 1, 1),
     ("amethyst", "Amethyst", 250, True, "#c690e6", 0.08, 3.0, 1, 1),
@@ -39,12 +41,13 @@ ORE_CURVE = [
     ("tourmaline", "Tourmaline", 200, True, "#ff8aa5", 0.05, 2.2, 1, 1),
     ("ruby", "Ruby", 250, True, "#ff4a5e", 0.04, 2.0, 1, 1),
     ("onyx", "Onyx", 100, True, "#b9b3cf", 0.03, 1.8, 1, 1),
+    ("obsidian", "Obsidian", 350, True, "#ae97ae", 0.03, 1.6, 1, 1),
     ("emerald", "Emerald", 500, True, "#45e3c4", 0.025, 1.5, 1, 1),
     ("zapperion", "Zapperion", 650, True, "#e2e679", 0.02, 1.4, 1, 1),
     ("dreamstone", "Dreamstone", 1000, True, "#d9a6ff", 0.015, 1.2, 1, 1),
 ]
 # "ore" or "gem" (upgrades: Miner's Favor / Rocky Riches = ores, Jeweler's Favor = gems)
-GEMS = {"rhodonite", "jade", "peridot", "topaz", "amethyst", "sapphire", "tourmaline", "ruby", "onyx", "emerald", "zapperion", "dreamstone"}
+GEMS = {"rhodonite", "jade", "peridot", "topaz", "amethyst", "sapphire", "tourmaline", "ruby", "onyx", "emerald", "zapperion", "dreamstone", "lapis", "obsidian"}
 
 # each rock's speciality: ore -> chance multiplier
 BONUS = {

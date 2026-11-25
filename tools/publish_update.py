@@ -34,6 +34,9 @@ VERSION_FILE = os.path.join(ROOT, "scripts", "game_version.gd")
 BUILD = os.path.join(ROOT, "build")
 GODOT = os.environ.get("GODOT", r"E:\SteamLibrary\steamapps\common\Godot Engine\godot.windows.opt.tools.64.exe")
 TEMPLATE = os.path.join(os.path.dirname(GODOT), "editor_data", "export_templates", "4.7.2.stable", "windows_release_x86_64.exe")
+# New downloads (from 0.2) ship the slim engine (tools/engine: no 3D, physics...: ~30 MB instead of 109 MB).
+# Players who installed 0.1 run the official engine. Updates are only the pack, so they must work on BOTH.
+SLIM_TEMPLATE = os.path.join(ROOT, "tools", "engine", "bin", "richfromrocks_template_release.x86_64.exe")
 PRESET = "Windows"
 NAME = "RichFromRocks"
 GH = shutil.which("gh") or r"C:\Program Files\GitHub CLI\gh.exe"
@@ -57,17 +60,23 @@ def tag_exists(tag):
 
 
 def smoke_test(pack):
+    """Runs the pack on every engine players have: the official one (0.1 installs) and the slim one."""
+    for name, template in (("official", TEMPLATE), ("slim", SLIM_TEMPLATE)):
+        smoke_test_on(pack, name, template)
+
+
+def smoke_test_on(pack, name, template):
     """Plays the update exactly like a player's PC will: a copy of the release engine named
     RichFromRocks.exe, this pack next to it, a throwaway user folder, and `--selftest`. Anything but
     exit code 42 (or any script error) stops the publish: a broken update would reach every player."""
-    if not os.path.exists(TEMPLATE):
-        raise SystemExit("Can't test the build: no release template at %s" % TEMPLATE)
+    if not os.path.exists(template):
+        raise SystemExit("Can't test the build: no %s release template at %s" % (name, template))
     tmp = tempfile.mkdtemp(prefix="richfromrocks_smoke_")
     try:
         game = os.path.join(tmp, "game")
         os.makedirs(game)
         exe = os.path.join(game, NAME + ".exe")
-        shutil.copy(TEMPLATE, exe)
+        shutil.copy(template, exe)
         shutil.copy(pack, os.path.join(game, NAME + ".pck"))
         env = dict(os.environ, APPDATA=os.path.join(tmp, "appdata"))
         r = subprocess.run([exe, "--headless", "--quit-after", "6000", "--", "--selftest", "--no-update"],
@@ -76,9 +85,9 @@ def smoke_test(pack):
         bad = [l for l in out.splitlines() if "SCRIPT ERROR" in l or "Parse Error" in l or "Failed to load" in l
                or "Failed to instantiate" in l or "Aborting" in l]
         if bad or r.returncode != SELFTEST_CODE:
-            raise SystemExit("THE BUILD IS BROKEN, nothing was published (self-test exit code %d):\n  %s\n%s" % (
-                r.returncode, "\n  ".join(bad[:10]), out[-1500:]))
-        print("Smoke test passed: the exported game starts and builds its whole screen.")
+            raise SystemExit("THE BUILD IS BROKEN on the %s engine, nothing was published (self-test exit code %d):\n  %s\n%s" % (
+                name, r.returncode, "\n  ".join(bad[:10]), out[-1500:]))
+        print("Smoke test passed on the %s engine: the exported game starts and builds its whole screen." % name)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -97,7 +106,7 @@ def build_and_test(version, full):
         os.makedirs(os.path.dirname(exe), exist_ok=True)
         run(GODOT, "--headless", "--path", ROOT, "--export-release", PRESET, exe)
         bundle = os.path.join(BUILD, "%s-%s-%s-windows.zip" % (NAME, stage(), version))
-        with zipfile.ZipFile(bundle, "w", zipfile.ZIP_DEFLATED) as z:
+        with zipfile.ZipFile(bundle, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
             for name in (NAME + ".exe", NAME + ".pck"):
                 z.write(os.path.join(os.path.dirname(exe), name), NAME + "/" + name)
         assets.append(bundle)

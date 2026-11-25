@@ -77,6 +77,9 @@ var _mouse := Vector2.ZERO
 var _shake_l := 0.0             # lighter jolts on a misfire
 var _shake_off := Vector2.ZERO  # this frame's shake (jolts + trembling when you're about to lose)
 # relight timing game: a marker sweeps the track; hit SPACE while it's in the gold zone
+var _fm := 0.0                  # the FLICK charge bar: 0..1, fills at this minigame's tempo; flick in the gold zone
+var _fm_ok := 0.0               # flashes: a good flick / a mistimed one
+var _fm_bad := 0.0
 var _meter := 0.0
 var _meter_dir := 1.0
 var _meter_speed := 1.0
@@ -200,7 +203,7 @@ func _lighter_box() -> Rect2:
 	var sc := float(Config.LIGHTER_SCALE)
 	var o := Vector2(Config.LIGHTER_POS.x, size.y - Config.LIGHTER_POS.y) - FLAME_ANCHOR * sc
 	return Rect2(o + Vector2(0, 12) * sc, Vector2(84, 68) * sc).grow_individual(
-			Config.LIGHTER_SWAY.x, Config.LIGHTER_SWAY.y, Config.LIGHTER_SWAY.x + 16, 0)
+			Config.LIGHTER_SWAY.x, Config.LIGHTER_SWAY.y, Config.LIGHTER_SWAY.x + 16 + Config.FLICK_BAR_GAP + 6 * sc, 0)
 
 
 ## A random point in r that's at least pad px away from the lighter.
@@ -896,6 +899,21 @@ func flick() -> void:
 				Sfx.play("misfire", 1.3)
 				_pop(_flame_pos() + Vector2(190, 70), "Wick's burnt down - finish it!", Config.SLICE_MISS_COLOR)
 				return
+			# timing: only a flick while the FLICK bar is in its gold zone adds light. Spamming (too soon)
+			# or waiting too long (too late) fails: no light, and it burns some wick.
+			var z := flick_zone()
+			if _fm < z.x or _fm > z.y:
+				var early := _fm < z.x
+				_fm = 0.0
+				_fm_bad = 0.3
+				_shake_l = maxf(_shake_l, 0.35)
+				Sfx.play("misfire", 1.15)
+				_burn_wick(Config.FLICK_FAIL_WICK_COST)
+				var br := flick_bar_rect()
+				_pop(Vector2(br.end.x + 90, br.position.y + 60), "Too soon!" if early else "Too late!", Config.SLICE_MISS_COLOR)
+				return
+			_fm = 0.0
+			_fm_ok = 0.25
 			light = minf(light + randf_range(Config.RECHARGE_MIN, Config.RECHARGE_MAX) / 100.0, wick)
 			if light >= 1.0:
 				_full_blaze()
@@ -923,6 +941,26 @@ func flick() -> void:
 				_meter_miss = 0.3
 				_shake_l = 1.0
 				Sfx.play("misfire")
+
+
+## The FLICK bar's tempo for what you're doing right now: [seconds to fill, gold zone size].
+## Each minigame has its own (Config.FLICK_TEMPO); later stages fill it faster.
+func flick_tempo() -> Vector2:
+	var t: Array = Config.FLICK_TEMPO.get(kind if kind != "" and practice != "flick" else "", Config.FLICK_TEMPO[""])
+	return Vector2(maxf(float(t[0]) * lerpf(1.0, Game.stage_fuel_factor(), Config.FLICK_STAGE_SPEEDUP), 0.15), float(t[1]))
+
+
+## The gold zone on the FLICK bar (from, to), at the top end of the bar.
+func flick_zone() -> Vector2:
+	var w := flick_tempo().y
+	return Vector2(Config.FLICK_ZONE_END - w, Config.FLICK_ZONE_END)
+
+
+## Dev / screenshot demo: flick exactly in the gold zone.
+func dev_flick() -> void:
+	var z := flick_zone()
+	_fm = (z.x + z.y) * 0.5
+	flick()
 
 
 ## Moves the gold zone somewhere away from the marker.
@@ -1123,6 +1161,12 @@ func _process(delta: float) -> void:
 	var tremble := Config.DANGER_SHAKE * danger()
 	_shake_off = (Vector2(randf_range(-1, 1), randf_range(-1, 1)) * (_shake_l * 10.0 + tremble)).round()
 	_meter_hit = maxf(_meter_hit - delta, 0.0)
+	_fm_ok = maxf(_fm_ok - delta, 0.0)
+	_fm_bad = maxf(_fm_bad - delta, 0.0)
+	if active and light_state == "lit" and not _falling and rise >= 1.0:
+		_fm += delta / flick_tempo().x
+		if _fm >= 1.0:
+			_fm = fmod(_fm, 1.0)  # missed the zone: it starts charging again
 	_meter_miss = maxf(_meter_miss - delta, 0.0)
 	if active and light_state == "out" and not _falling and rise >= 1.0:
 		_meter += _meter_dir * _meter_speed * delta  # bounces back and forth along the track
@@ -1363,6 +1407,7 @@ func _draw_top() -> void:
 	_ci = _top
 	_draw_chips(true)
 	_draw_lighter()
+	_draw_flick_bar()
 	_draw_wick_gauge()
 	for pp in _pops:
 		var c: Color = pp.c
@@ -1370,6 +1415,54 @@ func _draw_top() -> void:
 		_text(pp.text, pp.p - Vector2(0, Config.TAP_RADIUS + 8), 20, c, title_font)
 	_draw_hud()
 	_ci = self
+
+
+## Where the FLICK bar sits: just right of the lighter, bottom of the screen (doesn't follow the lean).
+func flick_bar_rect() -> Rect2:
+	var sc := float(Config.LIGHTER_SCALE)
+	var o := Vector2(Config.LIGHTER_POS.x, size.y - Config.LIGHTER_POS.y) - FLAME_ANCHOR * sc
+	var cells := Vector2i(5, int(Config.FLICK_BAR_HEIGHT / sc))
+	var sz := Vector2(cells) * sc
+	return Rect2(Vector2(o.x + 84.0 * sc + Config.FLICK_BAR_GAP, size.y - 26.0 - sz.y).round(), sz)
+
+
+## The FLICK bar, pixel art like the wick: it charges up from the bottom at this minigame's tempo;
+## the gold band near the top is when a flick counts. Green flash = good flick, red = mistimed.
+func _draw_flick_bar() -> void:
+	if light_state != "lit" or _glow < 0.5:
+		return
+	var sc := float(Config.LIGHTER_SCALE)
+	var r := flick_bar_rect()
+	var rows := int(r.size.y / sc)
+	var cols := int(r.size.x / sc)
+	var full := _hold > 0.0  # steady full blaze: flicking now floods it
+	var frame_col := Config.TEXT_OUTLINE_COLOR
+	if _fm_bad > 0.0:
+		frame_col = Config.SLICE_MISS_COLOR
+	elif _fm_ok > 0.0:
+		frame_col = Color("#91db69")
+	_ci.draw_rect(r.grow(sc), frame_col)
+	_ci.draw_rect(r, Color("#2a1d16"))
+	var z := flick_zone()
+	var inner := rows - 2
+	var fill := int(floor(clampf(_fm, 0.0, 1.0) * inner))
+	var in_zone := _fm >= z.x and _fm <= z.y
+	for i in inner:
+		var y := rows - 2 - i                         # from the bottom up
+		var f0 := float(i) / inner
+		var zone_row := f0 + 0.5 / inner >= z.x and f0 + 0.5 / inner <= z.y
+		var c := Color("#3e3546")
+		if zone_row:
+			c = Color("#8a6a2a")                      # the gold zone, dim
+		if i < fill:
+			c = Color("#ffd166") if zone_row else Color("#cd683d")
+			if full:
+				c = Color("#7f708a")
+		for x in range(1, cols - 1):
+			_ci.draw_rect(Rect2(r.position + Vector2(x, y) * sc, Vector2(sc, sc)), c)
+	var label := "FULL" if full else ("FLICK!" if in_zone else "FLICK")
+	var col := Config.MUTED_TEXT if full else (Config.ACCENT if in_zone else Config.TEXT_COLOR)
+	_text(label, Vector2(r.get_center().x, r.position.y - 12), 16, col, font)
 
 
 ## Your lighter, held at the left like a torch. Lid frame from the open/close animation; the flame is the timer.
@@ -1539,7 +1632,7 @@ func _draw_hud() -> void:
 		title = "STAGE %d" % Game.stage
 	if title != "":
 		_text(title, Vector2(cx, 46), 36, Config.SLICE_MISS_COLOR if red else Config.ACCENT, title_font)
-	if kind != "" and light_state == "lit":
+	if kind != "" and light_state == "lit" and Game.show_hints:
 		_text(KIND_INFO[kind][1], Vector2(cx, 70), 17, Config.TEXT_COLOR, font)
 	if practice != "":
 		_text("PRACTICE - your lighter won't run out", Vector2(cx, 98), 16, Config.MUTED_TEXT, font)
@@ -1566,7 +1659,7 @@ func _draw_hud() -> void:
 		return
 	if light_state == "out":
 		_draw_relight()
-	elif light_state == "off" and fmod(_t, 1.0) < 0.75:
+	elif light_state == "off" and fmod(_t, 1.0) < 0.75 and Game.show_hints:
 		var msg := "Flick SPACE (or tap the lighter) to light it" if _lid_target < 1.0 else "Keep flicking! It hasn't caught yet"
 		_text(msg, Vector2(size.x * 0.5 + 60, size.y * 0.5 - 20), 30, Config.ACCENT, title_font)
 
@@ -1598,7 +1691,8 @@ func _draw_lives() -> void:
 ## The bar on the right drops with every good strike - get it to the bottom before time runs out.
 func _draw_relight() -> void:
 	var c := Vector2(size.x * 0.5 + 60, size.y * 0.5 - 60)
-	_text("Hit SPACE (or tap the lighter) in the gold zone!", c + Vector2(0, -34), 26, Config.ACCENT, title_font)
+	if Game.show_hints:
+		_text("Hit SPACE (or tap the lighter) in the gold zone!", c + Vector2(0, -34), 26, Config.ACCENT, title_font)
 	# the track
 	var track := Rect2(c.x - 230, c.y - 17, 460, 34)
 	_ci.draw_rect(track.grow(4), Config.TEXT_OUTLINE_COLOR)

@@ -29,6 +29,8 @@ var tickets := 0          # mine tickets
 var free_ticket_at := 0.0 # unix time when the next free ticket can be claimed
 var trip_active := false  # a ticket has been used and you haven't run out of lives yet
 var upgrades := {}        # upgrade id -> level
+var show_hints := true    # Settings > Hint text (kept through Reset)
+var market_prev := {}     # the market before the last restock (for the up / down trend)
 
 var batch := false        # dev / simulations: don't save after every change
 var _tex_cache := {}
@@ -68,6 +70,7 @@ func _new_game() -> void:
 	stage_walls = 0
 	best_stage = 1
 	market = {}
+	market_prev = {}
 	tickets = Config.START_TICKETS
 	free_ticket_at = now()  # the first free ticket is ready
 	trip_active = false
@@ -97,6 +100,7 @@ func ore_price(id: String) -> int:
 ## Demand shifts: every price moves from where it was, drifting back towards normal, kept inside
 ## MARKET_MIN..MARKET_MAX.
 func move_market() -> void:
+	market_prev = market.duplicate()
 	for id in Config.ROCKS.keys() + Config.ORES.keys():
 		var m := 1.0 + (market_mult(id) - 1.0) * (1.0 - Config.MARKET_PULL) + randfn(0.0, Config.MARKET_SWING)
 		market[id] = snappedf(clampf(m, Config.MARKET_MIN, Config.MARKET_MAX), 0.01)
@@ -332,6 +336,18 @@ func is_gem(ore_id: String) -> bool:
 	return Config.ORES.get(ore_id, {}).get("type", "ore") == "gem"
 
 
+func set_show_hints(on: bool) -> void:
+	show_hints = on
+	changed.emit()
+	save()
+
+
+## How a price moved at the last restock, in % (+12 = up 12%).
+func market_trend(id: String) -> int:
+	var before := float(market_prev.get(id, 1.0))
+	return roundi((market_mult(id) / maxf(before, 0.01) - 1.0) * 100.0)
+
+
 func set_tutorial_done() -> void:
 	tutorial_done = true
 	save()
@@ -497,6 +513,8 @@ func save() -> void:
 	cfg.set_value("dwarves", "free_ticket_at", free_ticket_at)
 	cfg.set_value("dwarves", "trip_active", trip_active)
 	cfg.set_value("dwarves", "upgrades", upgrades)
+	cfg.set_value("prefs", "show_hints", show_hints)
+	cfg.set_value("market", "prev", market_prev)
 	cfg.save(SAVE_PATH)
 
 
@@ -531,6 +549,8 @@ func _load() -> bool:
 	for id in mk:
 		if Config.ROCKS.has(id) or Config.ORES.has(id):
 			market[id] = clampf(float(mk[id]), Config.MARKET_MIN, Config.MARKET_MAX)
+	show_hints = cfg.get_value("prefs", "show_hints", true)
+	market_prev = cfg.get_value("market", "prev", {})
 	tickets = maxi(0, cfg.get_value("dwarves", "tickets", Config.START_TICKETS))
 	free_ticket_at = minf(float(cfg.get_value("dwarves", "free_ticket_at", 0.0)), now() + Config.FREE_TICKET_SECONDS)
 	trip_active = cfg.get_value("dwarves", "trip_active", false)

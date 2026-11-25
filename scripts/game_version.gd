@@ -4,10 +4,13 @@ extends RefCounted
 ## publishes an update; don't change it by hand unless you're publishing.
 
 const STAGE := "Indev"  ## shown before the number: "Indev 0.1"
-const VERSION := "0.1"
+const VERSION := "0.2"
 ## The GitHub repository whose Releases hold the update packs (RichFromRocks-update-<version>.pck plus
 ## its .sha256). It must be PUBLIC: players' games download from it without logging in.
 const RELEASES_REPO := "ryeeofficialwb-ui/rich-from-rocks"
+## Who owns the game (LICENSE: all rights reserved). Shown in Settings, the corner and the exe's details.
+const OWNER := "ryeeofficialwb-ui"
+const COPYRIGHT := "(c) 2026 ryeeofficialwb-ui. All rights reserved."
 
 
 ## "Indev 0.1": how the version is shown (bottom-left corner, Settings, release titles).

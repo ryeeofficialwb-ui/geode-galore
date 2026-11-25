@@ -1,4 +1,6 @@
-# Rich From Rocks  (Indev 0.1)
+# Rich From Rocks  (Indev 0.2)
+
+(c) 2026 ryeeofficialwb-ui. All rights reserved. See [LICENSE](LICENSE).
 
 Buy rocks, smash them open (3-5 clicks, random), find ores and gems, sell them, buy better rocks.
 Short on coins? Click **< Mine** on the left to go to the mining wall and earn coins with quick mining actions
@@ -8,6 +10,12 @@ Short on coins? Click **< Mine** on the left to go to the mining wall and earn c
 - **Top bar:** coins, your mine **tickets**, **Shop** (two tabs: **Rock Shop** and **Dwarven Shop**), **Backpack** (your ores & gems, sell them here), **Settings** (sound on/off, music volume, sound-effect volume, reset), **?** (the tutorial).
 - **Tutorial:** opens by itself on a new game (and once for old saves), and any time from **?**. It spotlights each part of the game and lets you try every wall action with no timer. Skip with **Skip tutorial** or Esc; arrow keys / Enter step through it.
 - **Main screen:** the rock in the middle, **Your Rocks** on the right, **< Mine** arrow on the left.
+- **Market & Guide** (top bar): today's price of every ore, gem and rock, its % of normal and how it moved at the
+  last restock. Click anything for its page: what it sells for, chances, the 3 best rocks to find it in (your
+  upgrades included) and its **lore** (`ORE_LORE` in `config.gd`, write your own); for rocks, what's inside is worth
+  on average at today's prices.
+- **Settings > Hint text:** turn off the helper texts (the rock hint, "Click one to put it on the anvil", the
+  ticket and market notes, each wall action's instruction line, the "Flick SPACE..." / "Hit SPACE..." prompts).
 - **Market (supply & demand):** every time the shop restocks on its timer (every 5 minutes) demand shifts: every
   rock's shop price and every ore / gem's sell price moves up or down from where it was, drifting back towards
   normal over time. A price can never go above **200%** or below **10%** of its normal price. The Shop and Backpack
@@ -43,6 +51,14 @@ Short on coins? Click **< Mine** on the left to go to the mining wall and earn c
   and every sloppy motion (off the line, a missed circle, a stray click) burns a chunk of it. If the wick burns
   out, the lighter dies and your combo goes with it. The **WICK** gauge in the bottom-right corner shows how much is left
   (a braided wick burning down with an ember on top; its frame flashes red when it's nearly gone).
+
+  **Timed flicks:** a flick only adds light if it's **timed**. The **FLICK** bar next to the lighter charges up from the
+  bottom; flick when it reaches the **gold zone** near the top ("FLICK!"). Too soon (spamming) or too late fails:
+  no light, a red flash, and it **burns some wick** (`FLICK_FAIL_WICK_COST`). Every minigame charges the bar at its
+  own tempo (`FLICK_TEMPO`): pry is slow (1.5 s, the easiest to flick well), zigzag steady, drill and tap quick,
+  slash very fast (0.36 s, about a 0.1 s window). So you choose: take your time on a slow one and flick up lots of
+  light, or rush the fast ones because flicking there is hard - and relighting is harder. Later stages speed the
+  bar up a bit (`FLICK_STAGE_SPEEDUP`). While the flame is at full blaze the bar shows FULL (flicking floods it).
 
   **About to lose?** The lighter starts to tremble when the wick or the light drops below 25%, or in the last 2
   seconds of the relight countdown, and shakes harder the closer you get. If the light fades all the way, your combo is lost and the lighter goes out.
@@ -188,13 +204,15 @@ just some rocks; the others keep the generated cracks. The number of stages is `
 | `jade.png` Jade | 30 | | `onyx.png` **Onyx** (black gem) | 175 |
 | `gold.png` Gold | 45 | | `emerald.png` Emerald | 200 |
 | `rustvein.png` **Rustvein** (rusty red chunks, yours) | 16 | | `tourmaline.png` **Tourmaline** (pink gem, yours) | 200 |
-| | | | `zapperion.png` **Zapperion** (yellow-green crystal, yours) | 650 |
+| `stibnite.png` **Stibnite** (silver-grey crystals, yours) | 24 | | `zapperion.png` **Zapperion** (yellow-green crystal, yours) | 650 |
+| | | | `lapis.png` **Lapis** (blue with gold flecks, yours) | 120 |
+| | | | `obsidian.png` **Obsidian** (dark volcanic glass, yours) | 350 |
 | | | | `dreamstone.png` **Dreamstone** (lavender lumps) | 300 |
 
 (The sell prices above are the old ones; the real ones are `sell_price` in `ORES`, then the market moves them.)
-For the upgrades, **ores** are Lead, Copper, Iron, Zinc, Rustvein, Silver, Gold and Uranium; everything else is a
+For the upgrades, **ores** are Lead, Copper, Iron, Zinc, Rustvein, Stibnite, Silver, Gold and Uranium; everything else is a
 **gem** (the `type` column in `ORES`). Rustvein / Tourmaline / Zapperion are cut from `art_source/rustvein.png` and
-`art_source/new_gems.png` by `tools/make_ui.py`.
+`art_source/new_gems.png` by `tools/make_ui.py`, and Lapis / Stibnite / Obsidian from `art_source/new_ores_2.png`.
 
 Every rock can drop every one of these. Cheap rocks mostly give lead / copper / iron / zinc with a tiny chance of
 anything; pricier rocks lean towards silver, gold, jade and gems. All prices and chances are in `ORES` / `ROCKS`.
@@ -255,7 +273,7 @@ py -3.12 tools/slice_sheets.py
 You can also skip the sheets and just edit the single PNGs.
 
 ### Audio: `assets/audio/`
-The two music tracks are yours (see below); every other sound is a synthesized PLACEHOLDER made by
+The music is yours (see below); every other sound is a synthesized PLACEHOLDER made by
 `tools/make_sounds.py`. Drop in your own file with the same name.
 **.wav, .ogg or .mp3** all work (if more than one exists, .ogg is used first, then .wav, then .mp3).
 
@@ -288,16 +306,19 @@ The two music tracks are yours (see below); every other sound is a synthesized P
 | `fizzle` | the lighter goes out |
 | `life_lost` | you didn't relight in time |
 | `stage_up` / `stage_down` | you cleared a stage / ran out of lives |
-| `music` | music on the rock screen, loops forever: **Lucky Seven Pecan Pie** |
-| `music_mine` | music on the mining wall: **Threshold** (Michael Grubb); the two cross-fade when you switch screens |
+| music `rocks` | the rock screen: **Gambler Symphony** |
+| music `mine` | the mining wall: **MeltdownTheme** |
+| music `shop` | while the Shop is open: **Shop Theme** (Thameuszin) |
 
-**Music is kept tiny:** the tracks are mono, 22 kHz OGG Vorbis at quality 0 (about 30 kbps, ~0.5 MB each instead
-of 5 MB MP3s). Your original MP3s are kept in `art_source/music/` (Godot ignores that folder, so they're not in the
-game). To swap in a new track, convert it the same way and save it as `assets/audio/music.ogg` / `music_mine.ogg`:
-```
-ffmpeg -i song.mp3 -vn -ac 1 -ar 22050 -c:a libvorbis -q:a 0 -map_metadata -1 assets/audio/music.ogg
-```
-(For a bit more quality use `-q:a 2`, or drop `-ac 1` to keep stereo.) The loudness of each track is `MUSIC_TRACKS` in `config.gd`.
+The tracks cross-fade when you switch screens or open / close the Shop (`MUSIC_TRACKS` in `config.gd`).
+
+**Music is tiny and locked.** `py -3.12 tools/make_music.py` takes your originals from `art_source/music/`, makes
+them mono, 22 kHz OGG Vorbis at quality 0 (about 30 kbps) and loudness-matched (58.6 MB of WAV/MP3 -> 1.5 MB), then
+**encrypts** each into `assets/audio/music/<key>.dat`. The game decrypts them in memory as they play, so the game
+files hold no playable music to copy out, and the music is gitignored, so it's never in the public GitHub repo
+(only inside the game). To change a track: put it in `art_source/music/`, edit `TRACKS` at the top of the script,
+run it. (Nothing in a game is truly uncrackable: someone determined could still pull the key out of the game, but
+nobody can just grab the files.) The old tracks are kept in `art_source/music_old/`.
 
 Volume and pitch variation for each sound are in `SOUNDS` in `config.gd`. To regenerate the placeholders: `py tools/make_sounds.py`
 (it skips any sound you've already replaced; add `--force` to overwrite all).
@@ -326,7 +347,20 @@ updates the next time it starts. Add `--full` to also attach the complete Window
 players only when Godot itself changes; the 0.1 zip keeps working because it updates itself).
 Needs Godot 4.7.2 with its export templates (the Steam version has them) and `gh` logged in.
 
-## 4. Files
+**Lightweight:** the Windows download uses a **slim engine** (`tools/engine/bin/richfromrocks_template_release.x86_64.exe`:
+Godot 4.7.2 built without 3D, physics, navigation, XR, Vulkan/D3D12 and unused modules - Seed Splicer's build,
+same version). The exe is 30 MB instead of 109 MB and the zip about 13 MB instead of 39 MB; the game pack itself
+is ~2 MB. Every update is tested on both the slim engine and the official one (0.1 players have the official
+one). Rebuilding the slim engine needs the Godot source + Visual Studio: `tools/engine/build_template.ps1`.
+
+## 4. License
+
+**All rights reserved** (see [`LICENSE`](LICENSE)): Rich From Rocks belongs to ryeeofficialwb-ui. Anyone may play the
+official releases and make videos of it with credit, but nobody may copy, reupload, sell, modify, or claim the game or
+its art as theirs. The owner's name is in the game (Settings, the corner of the rock screen) and in the exe's
+file details. The fonts, music and Godot Engine keep their own licenses.
+
+## 5. Files
 
 ```
 scripts/config.gd      <- ALL SETTINGS (edit this)
@@ -345,6 +379,8 @@ tools/make_sounds.py   makes the placeholder sounds
 tools/tune_drops.py    balances rock quality so each rock is worth about its price
 tools/make_flame.py    makes the 8-frame flame flicker (sway, colour bands, breathing gas, tongues that break off)
 tools/make_lighter.py  cuts the lighter sheet into frames + flame, makes the lid in-between frames
+tools/make_music.py    compresses + encrypts your soundtracks (tools/encrypt_music.gd does the encrypting)
+tools/engine/          the slim engine build profile (the built exe in bin/ is gitignored)
 tools/publish_update.py  publishes an update (export, self-test, commit, tag, push, GitHub Release)
 tools/make_ui.py       pixel UI skin, placeholder upgrade / ticket icons, the 3 new ore icons
 rock.gd / rock_generator.gd / *.tscn   your procedural rock generator from before (not used by the game, left as is)

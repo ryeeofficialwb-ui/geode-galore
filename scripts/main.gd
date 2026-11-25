@@ -51,6 +51,16 @@ var backpack_overlay: Control
 var rock_view: RockView
 var rock_title: Label
 var hint_label: Label
+var market_btn: Button
+var market_overlay: Control
+var market_list: VBoxContainer
+var market_detail: VBoxContainer
+var market_tab := "ores"
+var market_pick := ""               # the item shown on the right
+var tab_m_ores: Button
+var tab_m_rocks: Button
+var hints_btn: Button
+var _hints: Array[Control] = []     # helper texts that Settings > Hint text hides
 var bag_list: VBoxContainer
 var ore_list: VBoxContainer
 var sell_all_btn: Button
@@ -103,8 +113,12 @@ func _ready() -> void:
 			_dev = true
 			_dev_shots(a.trim_prefix("--shot="))
 	if "--selftest" in OS.get_cmdline_user_args():
-		# the updater's check of a freshly installed pack: the whole screen got built, report success
-		get_tree().quit.call_deferred(Updater.SELFTEST_CODE)
+		# the updater's check of a freshly installed pack: the whole screen got built and every music
+		# track decrypted and loaded -> report success
+		var music_ok: bool = Sfx._music.size() == Config.MUSIC_TRACKS.size()
+		if not music_ok:
+			printerr("SELFTEST: music tracks loaded %d / %d" % [Sfx._music.size(), Config.MUSIC_TRACKS.size()])
+		get_tree().quit.call_deferred(Updater.SELFTEST_CODE if music_ok else 1)
 		return
 	if Updater.enabled():
 		var updater := Updater.new()
@@ -122,10 +136,10 @@ func _process(delta: float) -> void:
 	_layout_screens()
 	version_label.visible = not on_wall
 	version_label.position = Vector2(14, size.y - version_label.size.y - 8)
-	wall_view.active = on_wall and not (shop_overlay.visible or backpack_overlay.visible or settings_overlay.visible or reset_confirm.visible) 			and (not tutorial.visible or tutorial.practicing())  # the tutorial freezes the wall, except while you try an action
+	wall_view.active = on_wall and not (shop_overlay.visible or backpack_overlay.visible or settings_overlay.visible or market_overlay.visible or reset_confirm.visible) 			and (not tutorial.visible or tutorial.practicing())  # the tutorial freezes the wall, except while you try an action
 	wall_view.active = wall_view.active and (Game.trip_active or tutorial.practicing())  # no ticket, no mining
 	if shop_overlay.visible:
-		shop_timer.text = "Restocks in %s  -  the market moves every restock" % _fmt_time(Game.restock_left())
+		shop_timer.text = "Restocks in %s" % _fmt_time(Game.restock_left()) + ("  -  the market moves every restock" if Game.show_hints else "")
 		_update_tickets()
 	if _shake > 0.0:
 		_shake = move_toward(_shake, 0.0, delta * 40.0)
@@ -179,6 +193,9 @@ func _build() -> void:
 	top.add_child(ticket_label)
 	shop_btn = _top_button("Shop", "shop", _open_shop)
 	top.add_child(shop_btn)
+	market_btn = _top_button("Market", "market", _open_market)
+	market_btn.tooltip_text = "Market prices & guide to every ore, gem and rock"
+	top.add_child(market_btn)
 	backpack_btn = _top_button("Backpack", "backpack", _open_backpack)
 	top.add_child(backpack_btn)
 	settings_btn = _top_button("Settings", "settings", _open_settings)
@@ -233,7 +250,7 @@ func _build() -> void:
 	rock_view = RockView.new()
 	rock_view.set_anchors_preset(Control.PRESET_FULL_RECT)
 	stack.add_child(rock_view)
-	hint_label = _label("", 18, Config.MUTED_TEXT)
+	hint_label = _hint(_label("", 18, Config.MUTED_TEXT)) as Label
 	hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	center.add_child(hint_label)
 
@@ -243,7 +260,7 @@ func _build() -> void:
 	var rv := VBoxContainer.new()
 	right.add_child(rv)
 	rv.add_child(_title("Your Rocks", 24, Config.ACCENT))
-	rv.add_child(_label("Click one to put it on the anvil", 14, Config.MUTED_TEXT))
+	rv.add_child(_hint(_label("Click one to put it on the anvil", 14, Config.MUTED_TEXT)))
 	bag_list = _scroll_list(rv)
 
 	# wall screen: the wall fills it, Back button on the right
@@ -264,6 +281,7 @@ func _build() -> void:
 	add_child(fx_layer)
 
 	_build_shop()
+	_build_market()
 	_build_backpack()
 	_build_settings()
 
@@ -378,7 +396,7 @@ func _build_shop() -> void:
 	trow.add_child(tinfo)
 	ticket_info = _label("", 20, Config.TEXT_COLOR)
 	tinfo.add_child(ticket_info)
-	var tsub := _label("One ticket = one trip down the mine, until you run out of lives.", 14, Config.MUTED_TEXT)
+	var tsub := _hint(_label("One ticket = one trip down the mine, until you run out of lives.", 14, Config.MUTED_TEXT))
 	tinfo.add_child(tsub)
 	claim_btn = _button("", _claim_ticket)
 	claim_btn.custom_minimum_size = Vector2(190, 48)
@@ -476,6 +494,219 @@ func _market_tag(id: String, fs: int) -> Label:
 	return l
 
 
+## Market & Guide: today's price of everything (vs normal, and how it moved at the last restock), and
+## a page for each ore / gem (lore, where to find it) and rock.
+func _build_market() -> void:
+	var o := _make_overlay("Market & Guide", _close_overlays)
+	market_overlay = o[0]
+	var v: VBoxContainer = o[1]
+	var tabs := HBoxContainer.new()
+	tabs.add_theme_constant_override("separation", 8)
+	v.add_child(tabs)
+	var grp := ButtonGroup.new()
+	tab_m_ores = _button("Ores & Gems", _show_market_tab.bind("ores"))
+	tab_m_rocks = _button("Rocks", _show_market_tab.bind("rocks"))
+	for b in [tab_m_ores, tab_m_rocks]:
+		b.toggle_mode = true
+		b.button_group = grp
+		b.custom_minimum_size = Vector2(190, 46)
+		b.add_theme_color_override("font_pressed_color", Config.ACCENT)
+		b.add_theme_color_override("font_hover_pressed_color", Config.ACCENT)
+		tabs.add_child(b)
+	v.add_child(_hint(_label("Prices change at every shop restock. Click anything to read about it.", 16, Config.MUTED_TEXT)))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	v.add_child(row)
+	var sc := ScrollContainer.new()
+	sc.custom_minimum_size = Vector2(500, 430)
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	row.add_child(sc)
+	market_list = VBoxContainer.new()
+	market_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	market_list.add_theme_constant_override("separation", 4)
+	sc.add_child(market_list)
+	var dcard := PanelContainer.new()
+	dcard.add_theme_stylebox_override("panel", slot_style)
+	dcard.custom_minimum_size = Vector2(400, 430)
+	row.add_child(dcard)
+	var dsc := ScrollContainer.new()
+	dsc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	dcard.add_child(dsc)
+	market_detail = VBoxContainer.new()
+	market_detail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	market_detail.add_theme_constant_override("separation", 6)
+	dsc.add_child(market_detail)
+
+
+func _open_market() -> void:
+	_close_overlays()
+	market_overlay.visible = true
+	_show_market_tab(market_tab, false)
+
+
+func _show_market_tab(tab: String, sound := true) -> void:
+	if sound and tab != market_tab:
+		Sfx.play("click")
+	if tab != market_tab:
+		market_pick = ""
+	market_tab = tab
+	tab_m_ores.set_pressed_no_signal(tab == "ores")
+	tab_m_rocks.set_pressed_no_signal(tab == "rocks")
+	_rebuild_market()
+
+
+func _rebuild_market() -> void:
+	if market_list == null or not market_overlay.visible:
+		return
+	for c in market_list.get_children():
+		c.queue_free()
+	var ids: Array = Config.ORES.keys() if market_tab == "ores" else _rocks_by_price()
+	if market_pick == "" or not ids.has(market_pick):
+		market_pick = ids[0]
+	for id in ids:
+		market_list.add_child(_market_row(id))
+	_show_market_detail(market_pick)
+
+
+func _rocks_by_price() -> Array:
+	var ids: Array = Config.ROCKS.keys()
+	ids.sort_custom(func(a, b): return int(Config.ROCKS[a].price) < int(Config.ROCKS[b].price))
+	return ids
+
+
+## One line of the list: icon, name, price now, % of normal, last move. Click it for its page.
+func _market_row(id: String) -> Control:
+	var ore := market_tab == "ores"
+	var b := Button.new()
+	b.custom_minimum_size = Vector2(0, 44)
+	b.focus_mode = Control.FOCUS_NONE
+	b.toggle_mode = true
+	b.button_pressed = id == market_pick
+	b.pressed.connect(func():
+		Sfx.play("click")
+		market_pick = id
+		_rebuild_market())
+	var flat := slot_style.duplicate() as StyleBox
+	b.add_theme_stylebox_override("normal", flat)
+	b.add_theme_stylebox_override("hover", _box(Color("#5a3a52"), Color("#2e222f"), 3, 0, 6))
+	b.add_theme_stylebox_override("pressed", _box(Color("#6e4b2f"), Config.ACCENT, 3, 0, 6))
+	b.add_theme_stylebox_override("hover_pressed", _box(Color("#6e4b2f"), Config.ACCENT, 3, 0, 6))
+	var h := HBoxContainer.new()
+	h.set_anchors_preset(Control.PRESET_FULL_RECT)
+	h.offset_left = 8
+	h.offset_right = -10
+	h.add_theme_constant_override("separation", 8)
+	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.add_child(h)
+	var ic := _icon(Game.ore_texture(id) if ore else Game.rock_icon(id), 32)
+	ic.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	h.add_child(ic)
+	var name_l := _label(Game.ore_name(id) if ore else Game.rock_name(id), 16, Config.ORES[id].color if ore else Config.TEXT_COLOR)
+	name_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	h.add_child(name_l)
+	var price := Game.ore_price(id) if ore else Game.rock_price(id)
+	var pl := _label("%d" % price, 16, Config.ACCENT)
+	pl.custom_minimum_size.x = 64
+	pl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	h.add_child(pl)
+	var pct := roundi(Game.market_mult(id) * 100.0)
+	var ml := _label("%d%%" % pct, 16, _pct_color(pct - 100))
+	ml.custom_minimum_size.x = 64
+	ml.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	h.add_child(ml)
+	var tr := Game.market_trend(id)
+	var tl := _label(("+%d%%" % tr) if tr > 0 else ("%d%%" % tr) if tr < 0 else "-", 16, _pct_color(tr))
+	tl.custom_minimum_size.x = 64
+	tl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	tl.tooltip_text = "Change at the last restock"
+	h.add_child(tl)
+	for c in h.get_children():
+		(c as Control).mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return b
+
+
+func _pct_color(delta: int) -> Color:
+	return Config.MARKET_UP_COLOR if delta > 0 else Config.MARKET_DOWN_COLOR if delta < 0 else Config.MUTED_TEXT
+
+
+## The page on the right.
+func _show_market_detail(id: String) -> void:
+	for c in market_detail.get_children():
+		c.queue_free()
+	var ore := market_tab == "ores"
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 10)
+	market_detail.add_child(head)
+	head.add_child(_icon(Game.ore_texture(id) if ore else Game.rock_icon(id), 80))
+	var hv := VBoxContainer.new()
+	hv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(hv)
+	hv.add_child(_title(Game.ore_name(id) if ore else Game.rock_name(id), 32, Config.ORES[id].color if ore else Config.ACCENT))
+	var pct := roundi(Game.market_mult(id) * 100.0)
+	var tr := Game.market_trend(id)
+	if ore:
+		var o: Dictionary = Config.ORES[id]
+		hv.add_child(_label(("Gem" if Game.is_gem(id) else "Ore") + ("  -  rare" if o.get("rare", false) else ""), 16, Config.MUTED_TEXT))
+		_detail_line("Sells for %d coins" % Game.ore_price(id), Config.ACCENT)
+		_detail_line("Market: %d%% of the normal %d  (%s at the last restock)" % [pct, int(o.sell_price),
+				("+%d%%" % tr) if tr > 0 else ("%d%%" % tr) if tr < 0 else "no change"], _pct_color(pct - 100))
+		_detail_line("In your backpack: %d" % int(Game.ores.get(id, 0)), Config.TEXT_COLOR)
+		var ch: Array = o.get("chance", [0, 0])
+		_detail_line("Chance per roll: %s%% in the cheapest rocks, up to %s%% in the best" % [String.num(float(ch[0]), 3), String.num(float(ch[1]), 2)], Config.TEXT_COLOR)
+		var best := _best_rocks_for(id)
+		_detail_line("Best found in: " + ", ".join(best), Config.TEXT_COLOR)
+		market_detail.add_child(HSeparator.new())
+		var lore := _label(Config.ORE_LORE.get(id, "Nobody knows much about this one yet."), 16, Config.TEXT_COLOR)
+		lore.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		lore.custom_minimum_size.x = 350
+		market_detail.add_child(lore)
+	else:
+		var r: Dictionary = Config.ROCKS[id]
+		hv.add_child(_label("Rock", 16, Config.MUTED_TEXT))
+		_detail_line("Shop price: %d coins" % Game.rock_price(id), Config.ACCENT)
+		_detail_line("Market: %d%% of the normal %d  (%s at the last restock)" % [pct, int(r.price),
+				("+%d%%" % tr) if tr > 0 else ("%d%%" % tr) if tr < 0 else "no change"], _pct_color(pct - 100))
+		_detail_line("Hits to break: %d - %d" % [int(r.get("hits_min", Config.HITS_MIN)), int(r.get("hits_max", Config.HITS_MAX))], Config.TEXT_COLOR)
+		_detail_line("Drop rolls: %d" % int(r.get("rolls", 1)), Config.TEXT_COLOR)
+		var bonus: Dictionary = r.get("bonus", {})
+		if not bonus.is_empty():
+			var parts := []
+			for oid in bonus:
+				parts.append("%s x%s" % [Game.ore_name(oid), String.num(float(bonus[oid]), 1)])
+			_detail_line("Speciality: " + ", ".join(parts), Config.TEXT_COLOR)
+		_detail_line("Worth inside, on average: ~%d coins at today's prices" % roundi(_rock_worth(id)), Config.ACCENT)
+		_detail_line("You own: %d" % int(Game.rocks.get(id, 0)), Config.TEXT_COLOR)
+
+
+func _detail_line(text: String, col: Color) -> void:
+	var l := _label(text, 16, col)
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.custom_minimum_size.x = 350
+	market_detail.add_child(l)
+
+
+## The 3 rocks most likely to give this ore (your upgrades included).
+func _best_rocks_for(ore_id: String) -> Array:
+	var ids: Array = Config.ROCKS.keys()
+	ids.sort_custom(func(a, b): return Game.drop_chance(a, ore_id) > Game.drop_chance(b, ore_id))
+	var out := []
+	for rid in ids.slice(0, 3):
+		out.append("%s (%s%%)" % [Game.rock_name(rid), String.num(Game.drop_chance(rid, ore_id), 2)])
+	return out
+
+
+## What a rock's drops are worth on average at today's market prices (upgrades included).
+func _rock_worth(rid: String) -> float:
+	var total := 0.0
+	for oid in Config.ORES:
+		var a := Game.drop_amount(rid, oid)
+		var n := (a.x + a.y) * 0.5
+		if not Game.is_gem(oid):
+			n *= 1.0 + Game.upgrade_value("rocky_riches") / 100.0
+		total += Game.drop_chance(rid, oid) / 100.0 * n * Game.ore_price(oid)
+	return total * int(Config.ROCKS[rid].get("rolls", 1))
+
+
 func _build_backpack() -> void:
 	var o := _make_overlay("Backpack", _close_overlays)
 	backpack_overlay = o[0]
@@ -499,6 +730,9 @@ func _build_settings() -> void:
 	settings_overlay = o[0]
 	var v: VBoxContainer = o[1]
 	v.custom_minimum_size.x = 380
+	hints_btn = _button("", _toggle_hints)
+	hints_btn.custom_minimum_size.y = 44
+	v.add_child(hints_btn)
 	sound_btn = _button("", _toggle_sound)
 	sound_btn.custom_minimum_size.y = 44
 	v.add_child(sound_btn)
@@ -511,9 +745,11 @@ func _build_settings() -> void:
 	reset_btn.custom_minimum_size.y = 40
 	v.add_child(reset_btn)
 	v.add_child(HSeparator.new())
-	var credits := _label("Rich From Rocks  %s
+	var credits := _label("Rich From Rocks  %s  -  by %s
+%s
 Font: BoldPixels by YukiPixels (CC BY-SA 4.0)
-Music: Lucky Seven Pecan Pie, Threshold (Michael Grubb)" % GameVersion.label(), 16, Config.MUTED_TEXT)
+Music: Gambler Symphony, MeltdownTheme, Shop Theme (Thameuszin)" % [
+			GameVersion.label(), GameVersion.OWNER, GameVersion.COPYRIGHT], 16, Config.MUTED_TEXT)
 	v.add_child(credits)
 
 
@@ -543,6 +779,7 @@ func _volume_row(parent: Control, text: String, value: float, setter: Callable) 
 
 # ================================================================== refresh
 func _refresh() -> void:
+	_apply_hints()
 	coin_label.text = "%d coins" % Game.coins
 	# bag
 	for c in bag_list.get_children():
@@ -591,6 +828,7 @@ func _refresh() -> void:
 	_rebuild_shop()
 	_rebuild_upgrades()
 	_update_tickets()
+	_rebuild_market()
 
 
 func _rebuild_shop() -> void:
@@ -803,6 +1041,7 @@ func _open_shop(tab := "") -> void:
 	if tab != "":
 		_show_shop_tab(tab, false)
 	shop_overlay.visible = true
+	Sfx.play_music("shop")
 
 
 func _open_backpack() -> void:
@@ -824,9 +1063,10 @@ func _close_overlays() -> void:
 
 
 func close_overlays_silent() -> void:
-	for o in [shop_overlay, backpack_overlay, settings_overlay]:
+	for o in [shop_overlay, backpack_overlay, settings_overlay, market_overlay]:
 		if o:
 			o.visible = false
+	Sfx.play_music("mine" if on_wall else "main")  # the shop's music fades back to this screen's
 
 
 func _open_tutorial() -> void:
@@ -864,7 +1104,8 @@ func _slide_to(wall: bool) -> void:
 		return
 	on_wall = wall
 	Sfx.play("screen_slide")
-	Sfx.play_music("mine" if wall else "main")
+	if not shop_overlay.visible:
+		Sfx.play_music("mine" if wall else "main")
 	var tw := create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
 	tw.tween_property(slider, "position:x", screens_area.size.x if wall else 0.0, Config.SCREEN_SLIDE_TIME)
 
@@ -967,6 +1208,26 @@ func _toggle_sound() -> void:
 	_update_sound_btn()
 
 
+func _toggle_hints() -> void:
+	Game.set_show_hints(not Game.show_hints)
+	Sfx.play("click")
+
+
+## Registers a helper text that Settings > Hint text can hide.
+func _hint(c: Control) -> Control:
+	_hints.append(c)
+	c.visible = Game.show_hints
+	return c
+
+
+func _apply_hints() -> void:
+	for c in _hints:
+		if is_instance_valid(c):
+			c.visible = Game.show_hints
+	if hints_btn:
+		hints_btn.text = "Hint text: On  (click to hide)" if Game.show_hints else "Hint text: Off  (click to show)"
+
+
 func _update_sound_btn() -> void:
 	sound_btn.text = "Sound: Off  (click to turn on)" if Sfx.muted else "Sound: On  (click to mute)"
 
@@ -980,7 +1241,7 @@ func _reset() -> void:
 
 
 func _update_version_label() -> void:
-	version_label.text = GameVersion.label() + ("   -   " + _update_status if _update_status != "" else "")
+	version_label.text = "%s   %s" % [GameVersion.label(), GameVersion.COPYRIGHT] + ("   -   " + _update_status if _update_status != "" else "")
 	version_label.reset_size()
 
 
@@ -1252,6 +1513,11 @@ func _dev_shots(dir: String) -> void:
 	get_viewport().get_texture().get_image().save_png(dir + "/3_break.png")
 	await get_tree().create_timer(1.2).timeout
 	get_viewport().get_texture().get_image().save_png(dir + "/4_after.png")
+	print("music tracks loaded: %s, playing %s" % [Sfx._music.keys(), Sfx.current_music])
+	_open_shop("rocks")
+	print("music with the shop open: %s" % Sfx.current_music)
+	_close_overlays()
+	print("music after closing it: %s" % Sfx.current_music)
 	# --- market, tickets, upgrades
 	Game.move_market()
 	print("market after one move: ", Game.market.values().slice(0, 8))
@@ -1321,6 +1587,24 @@ func _dev_shots(dir: String) -> void:
 	_open_shop("dwarf")
 	await get_tree().create_timer(0.3).timeout
 	get_viewport().get_texture().get_image().save_png(dir + "/5b_dwarf.png")
+	_open_market()
+	await get_tree().create_timer(0.3).timeout
+	get_viewport().get_texture().get_image().save_png(dir + "/5c_market.png")
+	market_pick = "lapis"
+	_rebuild_market()
+	await get_tree().create_timer(0.3).timeout
+	get_viewport().get_texture().get_image().save_png(dir + "/5d_market_lapis.png")
+	_show_market_tab("rocks")
+	await get_tree().create_timer(0.3).timeout
+	get_viewport().get_texture().get_image().save_png(dir + "/5e_market_rocks.png")
+	print("market rows: ores %d, rocks %d" % [Config.ORES.size(), market_list.get_child_count()])
+	_show_market_tab("ores", false)
+	_close_overlays()
+	Game.set_show_hints(false)
+	await get_tree().create_timer(0.3).timeout
+	get_viewport().get_texture().get_image().save_png(dir + "/5f_no_hints.png")
+	print("hints off: hint label visible %s" % hint_label.visible)
+	Game.set_show_hints(true)
 	_open_backpack()
 	await get_tree().create_timer(0.3).timeout
 	get_viewport().get_texture().get_image().save_png(dir + "/6_backpack.png")
@@ -1390,12 +1674,33 @@ func _dev_shots(dir: String) -> void:
 	shot.call("17_relit")
 	print("state after relight: ", wall_view.light_state, "  action: ", wall_view.kind)
 	wall_view.light = 0.5
+	wall_view.dev_flick()
+	print("one timed flick at 0.50: light %.2f" % wall_view.light)
+	# spam / late flicks fail and burn wick; each minigame has its own tempo
+	wall_view._hold = 0.0
+	wall_view.light = 0.5
+	wall_view.wick = 1.0
+	wall_view._fm = 0.05
 	wall_view.flick()
-	print("one flick at 0.50: light %.2f" % wall_view.light)
+	print("spam flick (bar at 0.05): light %.2f, wick %.2f" % [wall_view.light, wall_view.wick])
+	wall_view._fm = 0.99
+	wall_view.flick()
+	print("late flick (bar at 0.99): light %.2f, wick %.2f" % [wall_view.light, wall_view.wick])
+	var tempos := []
+	for k in ["tap", "zigzag", "slash", "drill", "pry"]:
+		wall_view.new_action(k)
+		var tp: Vector2 = wall_view.flick_tempo()
+		tempos.append("%s %.2fs (zone %d ms)" % [k, tp.x, roundi(tp.x * tp.y * 1000.0)])
+	print("flick tempos: ", ", ".join(tempos))
+	wall_view.new_action("drill")
+	await get_tree().create_timer(0.3).timeout
+	shot.call("17e_flick_bar")
 	var n_fl := 0
 	wall_view.light = 0.3
-	while wall_view.light < 1.0:
-		wall_view.flick()
+	wall_view.wick = 1.0
+	wall_view._hold = 0.0
+	while wall_view.light < 1.0 and n_fl < 200:
+		wall_view.dev_flick()
 		n_fl += 1
 	print("flicks from 0.30 to full: %d, then it stays full for %.1fs" % [n_fl, wall_view._hold])
 	await get_tree().create_timer(0.08).timeout
@@ -1422,6 +1727,8 @@ func _dev_shots(dir: String) -> void:
 	click.button_index = MOUSE_BUTTON_LEFT
 	click.pressed = true
 	click.position = wall_view._lighter_origin() + Vector2(60, 50) * Config.LIGHTER_SCALE
+	var z: Vector2 = wall_view.flick_zone()
+	wall_view._fm = (z.x + z.y) * 0.5
 	wall_view._gui_input(click)
 	print("tap on the lighter at 0.50: light %.2f" % wall_view.light)
 	# the wick: burns while an action waits, caps the light, only finishing restores it
@@ -1433,7 +1740,7 @@ func _dev_shots(dir: String) -> void:
 	wall_view.wick = 0.4
 	wall_view.light = 0.38
 	for i in 10:
-		wall_view.flick()
+		wall_view.dev_flick()
 	print("10 flicks with the wick at 0.40: light %.2f" % wall_view.light)
 	wall_view.press(wall_view._spot + Vector2(500, 0))
 	print("after a stray click: wick %.2f" % wall_view.wick)

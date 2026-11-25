@@ -7,3 +7,10 @@ build/
 
 # the original music MP3s (the game uses the small .ogg copies in assets/audio/)
 art_source/music/
+
+# your soundtracks: never in the public repo (the game ships them encrypted, see tools/make_music.py)
+assets/audio/music/
+art_source/music_old/
+
+# slim engine template (tools/engine/build_template.ps1 rebuilds it)
+tools/engine/bin/

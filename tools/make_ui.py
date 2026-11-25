@@ -7,11 +7,12 @@ colours. (Your first panels are kept in art_source/ui/ui_panels.png for referenc
 From YOUR art:
   art_source/new_gems.png       left = Tourmaline, right = Zapperion (32 x 32 each)
   art_source/rustvein.png       Rustvein (32 x 32)
+  art_source/new_ores_2.png     Lapis, Stibnite, Obsidian (32 x 32 each, left to right)
 Writes:
   assets/ui/skin/button.png (+ _hover, _pressed, _disabled), panel.png (menus), slot.png (sunken boxes),
   grabber.png (slider knob) - tiny (16 px) art, scaled up by UI_PIXEL_SCALE in the game
   assets/ui/upgrades/<upgrade id>.png and assets/ui/ticket.png - PLACEHOLDERS (16 x 16), replace freely
-  assets/ores/rustvein.png, tourmaline.png, zapperion.png
+  assets/ores/rustvein.png, tourmaline.png, zapperion.png, lapis.png, stibnite.png, obsidian.png
   art_source/ui/preview.png - everything side by side, 6x, to look at
 The game reads the 9-slice margins from Config (UI_SKIN_*): the corners never stretch, so a redrawn
 skin just needs the same border sizes - or change those numbers.
@@ -344,6 +345,9 @@ def cut_ores():
     gems.crop((0, 0, 32, 32)).save(ROOT / "assets/ores/tourmaline.png")
     gems.crop((32, 0, 64, 32)).save(ROOT / "assets/ores/zapperion.png")
     Image.open(ROOT / "art_source/rustvein.png").convert("RGBA").save(ROOT / "assets/ores/rustvein.png")
+    more = Image.open(ROOT / "art_source/new_ores_2.png").convert("RGBA")  # left to right
+    for i, oid in enumerate(("lapis", "stibnite", "obsidian")):
+        more.crop((i * 32, 0, i * 32 + 32, 32)).save(ROOT / f"assets/ores/{oid}.png")
 
 
 def main():

@@ -5,6 +5,11 @@ extends Node
 ## Music and sound effects run on their own audio buses ("Music", "SFX") so each has its own volume.
 
 const DIR := "res://assets/audio/"
+const MUSIC_DIR := "res://assets/audio/music/"
+## Music ships encrypted (assets/audio/music/<file>.dat, made by tools/make_music.py) and is decrypted in
+## memory, so there's no playable music file in the game's files. Changing this key means re-running
+## tools/make_music.py.
+const MUSIC_KEY := "UAWbu5_pRia1rHysAZ6r3IMFveZ8UXFX"
 const SETTINGS_PATH := "user://settings.cfg"
 const VOICES := 12
 const SILENT_DB := -60.0
@@ -42,7 +47,7 @@ func _ready() -> void:
 		add_child(v)
 		_voices.append(v)
 	for key in Config.MUSIC_TRACKS:
-		var m := _find(Config.MUSIC_TRACKS[key].file)
+		var m := _find_music(Config.MUSIC_TRACKS[key].file)
 		if m == null:
 			push_warning("Music missing: %s" % Config.MUSIC_TRACKS[key].file)
 			continue
@@ -72,6 +77,21 @@ func _find(sound_name: String) -> AudioStream:
 		if ResourceLoader.exists(path):
 			return load(path)
 	return null
+
+
+## A music track: the encrypted assets/audio/music/<name>.dat, else a plain <name>.ogg / .wav / .mp3.
+func _find_music(track: String) -> AudioStream:
+	var dat := MUSIC_DIR + track + ".dat"
+	if FileAccess.file_exists(dat):
+		var f := FileAccess.open_encrypted_with_pass(dat, FileAccess.READ, MUSIC_KEY)
+		if f:
+			var bytes := f.get_buffer(f.get_length())
+			f.close()
+			var ogg := AudioStreamOggVorbis.load_from_buffer(bytes)
+			if ogg:
+				return ogg
+		push_warning("Music can't be read: " + dat)
+	return _find(track)
 
 
 ## pitch: extra pitch on top of the random wobble (1.0 = normal).

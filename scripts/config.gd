@@ -157,10 +157,12 @@ const ORES := {  # configurable (whole table)
 	"zinc": {"name": "Zinc", "sell_price": 11, "type": "ore", "rare": false, "color": Color("#8fd3c9"), "chance": [10.0, 14.0], "amount": [1, 2]},
 	"rhodonite": {"name": "Rhodonite", "sell_price": 14, "type": "gem", "rare": false, "color": Color("#ec85a6"), "chance": [4.0, 12.0], "amount": [1, 1]},
 	"rustvein": {"name": "Rustvein", "sell_price": 16, "type": "ore", "rare": false, "color": Color("#f57d4a"), "chance": [3.0, 13.0], "amount": [1, 2]},
+	"stibnite": {"name": "Stibnite", "sell_price": 24, "type": "ore", "rare": false, "color": Color("#c7dcd0"), "chance": [2.0, 12.0], "amount": [1, 2]},
 	"silver": {"name": "Silver", "sell_price": 20, "type": "ore", "rare": false, "color": Color("#dfe9ec"), "chance": [2.5, 16.0], "amount": [1, 1]},
 	"jade": {"name": "Jade", "sell_price": 30, "type": "gem", "rare": false, "color": Color("#62cf9e"), "chance": [1.2, 11.0], "amount": [1, 1]},
 	"gold": {"name": "Gold", "sell_price": 45, "type": "ore", "rare": false, "color": Color("#ffd84a"), "chance": [0.8, 12.0], "amount": [1, 1]},
 	"peridot": {"name": "Peridot", "sell_price": 60, "type": "gem", "rare": true, "color": Color("#aee35c"), "chance": [0.2, 4.0], "amount": [1, 1]},
+	"lapis": {"name": "Lapis", "sell_price": 120, "type": "gem", "rare": true, "color": Color("#4d9be6"), "chance": [0.1, 3.0], "amount": [1, 1]},
 	"topaz": {"name": "Topaz", "sell_price": 250, "type": "gem", "rare": true, "color": Color("#ffb347"), "chance": [0.12, 3.5], "amount": [1, 1]},
 	"uranium": {"name": "Uranium", "sell_price": 200, "type": "ore", "rare": true, "color": Color("#6cff5a"), "chance": [0.08, 3.0], "amount": [1, 1]},
 	"amethyst": {"name": "Amethyst", "sell_price": 250, "type": "gem", "rare": true, "color": Color("#c690e6"), "chance": [0.08, 3.0], "amount": [1, 1]},
@@ -168,9 +170,38 @@ const ORES := {  # configurable (whole table)
 	"tourmaline": {"name": "Tourmaline", "sell_price": 200, "type": "gem", "rare": true, "color": Color("#ff8aa5"), "chance": [0.05, 2.2], "amount": [1, 1]},
 	"ruby": {"name": "Ruby", "sell_price": 250, "type": "gem", "rare": true, "color": Color("#ff4a5e"), "chance": [0.04, 2.0], "amount": [1, 1]},
 	"onyx": {"name": "Onyx", "sell_price": 100, "type": "gem", "rare": true, "color": Color("#b9b3cf"), "chance": [0.03, 1.8], "amount": [1, 1]},
+	"obsidian": {"name": "Obsidian", "sell_price": 350, "type": "gem", "rare": true, "color": Color("#ae97ae"), "chance": [0.03, 1.6], "amount": [1, 1]},
 	"emerald": {"name": "Emerald", "sell_price": 500, "type": "gem", "rare": true, "color": Color("#45e3c4"), "chance": [0.025, 1.5], "amount": [1, 1]},
 	"zapperion": {"name": "Zapperion", "sell_price": 650, "type": "gem", "rare": true, "color": Color("#e2e679"), "chance": [0.02, 1.4], "amount": [1, 1]},
 	"dreamstone": {"name": "Dreamstone", "sell_price": 1000, "type": "gem", "rare": true, "color": Color("#d9a6ff"), "chance": [0.015, 1.2], "amount": [1, 1]},
+}
+
+
+## Lore shown when you click an ore / gem in the Market & Guide (write your own!).
+const ORE_LORE := {  # configurable
+	"lead": "Soft, grey and heavy for its size. Miners use it for weights and sinkers, and nobody has ever bragged about finding it.",
+	"copper": "The first metal people ever worked. It turns green with age, which the dwarves call 'getting wise'.",
+	"iron": "The backbone of every pickaxe in the mine. Rusts if you so much as look at it wrong.",
+	"zinc": "Brown nodules with a teal heart. Mixed with copper it becomes brass, the dwarves' favourite trim.",
+	"rhodonite": "A rose-pink stone streaked with black veins. Said to calm a hot-tempered miner.",
+	"rustvein": "Rock shot through with veins of rusted iron. Old miners say the red is the mountain bleeding.",
+	"stibnite": "Needle-sharp silver crystals of antimony. Pretty, brittle, and poisonous to lick. Don't lick it.",
+	"silver": "Bright, cool and quick to tarnish. Dwarven tales say it keeps the dark things of the deep away.",
+	"jade": "A tough green stone, harder to break than steel. Carvers spend a lifetime on a single piece.",
+	"gold": "Soft, heavy and it never rusts. Every miner's dream, and the reason most of them started digging.",
+	"peridot": "An olive-green gem born deep under the crust and carried up by volcanoes. It's even been found in meteorites.",
+	"lapis": "Deep blue flecked with golden pyrite, like a night sky in stone. Ground up, it made the bluest paint in history.",
+	"topaz": "A warm golden gem that glows like honey in lamplight. Legend says it can cool boiling water.",
+	"uranium": "Glowing green lumps that hum faintly in your backpack. Worth a lot. Don't keep it under your pillow.",
+	"amethyst": "Purple quartz. Ancient drinkers carved cups from it, sure it would keep them sober. It didn't.",
+	"sapphire": "Blue corundum, second only to diamond in hardness. Kings wore it to keep envy away.",
+	"tourmaline": "A pink gem that charges up when it's warmed and pulls dust towards it. Some say it pulls luck too.",
+	"ruby": "Red corundum, the king of gems. Old miners swore a ruby kept close made you unbreakable.",
+	"onyx": "A black gem with faint pale bands. Polished, it's dark enough to see yourself in.",
+	"obsidian": "Volcanic glass that cooled too fast to crystallise. Its edge is sharper than any steel blade.",
+	"emerald": "Green beryl full of tiny flaws the jewellers call its 'garden'. A flawless one is rarer than a diamond.",
+	"zapperion": "A yellow-green crystal that crackles when touched. Nobody knows what it is, but lamps flicker when it's near.",
+	"dreamstone": "Lavender lumps found only in the deepest walls. Sleep beside one and you'll dream of veins of gold.",
 }
 
 
@@ -225,6 +256,24 @@ const LIGHT_STEPS := 6  # configurable  (the light fades in this many visible st
 const RECHARGE_MIN := 3.0  # configurable  (% of light one flick adds back: random MIN..MAX - so you keep flicking)
 const RECHARGE_MAX := 5.0  # configurable
 const FLOOD_AT := 1.0  # configurable  (flicking during the steady full blaze floods it)
+## TIMED FLICKS: the FLICK bar next to the lighter charges up; a flick only adds light while the bar is
+## in its gold zone (near the top). Spam it (too soon) or wait too long (too late) and the flick fails:
+## no light, and it burns FLICK_FAIL_WICK_COST of your wick. Every minigame has its own tempo, so some
+## let you take your time (more light) and some are too fast to flick well (finish the action quickly).
+##   kind -> [seconds for the bar to fill, size of the gold zone (part of the bar)]   ("" = between actions)
+const FLICK_TEMPO := {  # configurable
+	"": [0.9, 0.24],
+	"tap": [0.5, 0.26],      # fast
+	"zigzag": [1.1, 0.22],   # steady
+	"slash": [0.36, 0.3],    # very fast
+	"drill": [0.65, 0.24],   # quick
+	"pry": [1.5, 0.18],      # slow, narrow zone
+}
+const FLICK_ZONE_END := 0.94  # configurable  (the gold zone ends here on the bar; above it is "too late")
+const FLICK_FAIL_WICK_COST := 0.06  # configurable  (wick a mistimed flick burns)
+const FLICK_STAGE_SPEEDUP := 0.5  # configurable  (0 = same tempo every stage, 1 = speeds up as much as the light fades)
+const FLICK_BAR_HEIGHT := 150.0  # configurable  (px)
+const FLICK_BAR_GAP := 20.0  # configurable  (px between the lighter and the bar)
 ## The WICK: the most light your flicks can bring back. While an action is waiting on you it burns
 ## down (over WICK_TIME seconds from full to nothing), so flicking alone isn't enough: the wall gets
 ## darker and darker and when the wick is gone the lighter dies (combo lost). FINISHING an action is
@@ -392,11 +441,13 @@ const SOUNDS := {  # configurable
 	"stage_up": {"db": -3.0, "pitch_var": 0.0},
 	"stage_down": {"db": -4.0, "pitch_var": 0.0},
 }
-## Music: one track per screen, they cross-fade when you switch screens.
-## key -> {file: assets/audio/<file>.wav/.ogg/.mp3, db: loudness}
+## Music: one track per screen (+ the Shop), they cross-fade when you switch.
+## key -> {file: assets/audio/music/<file>.dat (your tracks, compressed + locked by tools/make_music.py)
+##         or a plain assets/audio/<file>.ogg/.wav/.mp3, db: loudness}
 const MUSIC_TRACKS := {  # configurable
-	"main": {"file": "music", "db": -14.0},  # rock-breaking screen
-	"mine": {"file": "music_mine", "db": -13.0},  # mining wall screen
+	"main": {"file": "rocks", "db": -12.0},  # rock-breaking screen: Gambler Symphony
+	"mine": {"file": "mine", "db": -12.0},  # mining wall: MeltdownTheme
+	"shop": {"file": "shop", "db": -12.0},  # while the Shop is open: Shop Theme (Thameuszin)
 }
 const MUSIC_FADE_TIME := 0.8  # configurable  (seconds to cross-fade between tracks)
 const MUSIC_VOLUME := 0.7  # configurable  (0 - 1, starting music volume; players change it in Settings)
