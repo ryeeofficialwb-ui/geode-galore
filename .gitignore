@@ -1,0 +1,9 @@
+# Godot 4+ specific ignores
+.godot/
+/android/
+
+# exported builds and update packs (tools/publish_update.py)
+build/
+
+# the original music MP3s (the game uses the small .ogg copies in assets/audio/)
+art_source/music/
