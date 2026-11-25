@@ -1,9 +1,29 @@
-# Geode Galore  (Indev 0.3)
+# Geode Galore
 
-(formerly *Rich From Rocks*. The files keep the old name - `RichFromRocks.exe`, the save folder - so
-updates and saves carry over.)
+Buy rocks, smash them open, sell the ores and gems inside, and go down the mines for more.
+
+## Download & play (Windows)
+
+### **[⬇ Download Geode Galore](https://github.com/ryeeofficialwb-ui/geode-galore/releases/latest/download/GeodeGalore-Windows.zip)**
+
+1. Click the link above: `GeodeGalore-Windows.zip` downloads (about 13 MB).
+2. Right-click the zip > **Extract All**.
+3. Open the **Geode Galore** folder and double-click **GeodeGalore.exe**.
+
+If Windows says *"Windows protected your PC"*, click **More info** > **Run anyway** (the game just isn't
+signed by a big company).
+
+**That's it - you never download it again.** Every time you open the game it checks for a new version and
+updates itself (it closes and reopens once). Your save is kept. No internet? It just opens as it is.
 
 (c) 2026 ryeeofficialwb-ui. All rights reserved. See [LICENSE](LICENSE).
+
+---
+
+## For the developer
+
+(Geode Galore was called *Rich From Rocks* until Indev 0.3. Some files keep the old name - `RichFromRocks.exe` in
+old installs, the update packs, the save folder - so updates and saves carry over.)
 
 Buy rocks, smash them open (3-5 clicks, random), find ores and gems, sell them, buy better rocks.
 Short on coins? Click **< Mine** on the left to go to the mining wall and earn coins with quick mining actions

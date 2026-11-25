@@ -1,7 +1,7 @@
 """Publishes an update: players' games download it the next time they start (see scripts/updater.gd).
 
-    py -3.12 tools/publish_update.py 0.2 "What changed"
-    py -3.12 tools/publish_update.py 0.2 "What changed" --full     (also a full Windows download)
+    py -3.12 tools/publish_update.py 0.5 "What changed"
+    py -3.12 tools/publish_update.py --attach-full                 (adds the full download to the current release)
 
 Versions: Indev 0.1 is the first release. Releases are titled "Geode Galore Indev <version>"
 (GameVersion.STAGE). (Ported from Seed Splicer's publish script.)
@@ -13,8 +13,10 @@ Versions: Indev 0.1 is the first release. Releases are titled "Geode Galore Inde
 3. Commits everything, tags it v<version> and pushes to GitHub.
 4. Creates the GitHub Release v<version> on GameVersion.RELEASES_REPO (a PUBLIC repo) with the pack
    and its hash. Games older than <version> download it, check the hash and restart into it.
---full also exports RichFromRocks.exe and attaches build/RichFromRocks-<stage>-<version>-windows.zip:
-the complete game for new players (needed for the first release; after that only when Godot changes).
+Every release also gets the complete game for new players: GeodeGalore-Windows.zip (a "Geode Galore"
+folder with GeodeGalore.exe + GeodeGalore.pck). It always has the same name, so the README's link
+https://github.com/<repo>/releases/latest/download/GeodeGalore-Windows.zip always gives the newest version.
+(The game finds its pack by its own exe name, and old installs keep RichFromRocks.exe: both update fine.)
 
 Needs: git, the GitHub CLI (gh, logged in), Godot 4.7.2 + its export templates (set GODOT to its exe
 if it isn't the Steam one). Only the pack goes over the air: a new Godot version needs a --full release.
@@ -40,6 +42,9 @@ SLIM_TEMPLATE = os.path.join(ROOT, "tools", "engine", "bin", "richfromrocks_temp
 PRESET = "Windows"
 NAME = "RichFromRocks"
 GH = shutil.which("gh") or r"C:\Program Files\GitHub CLI\gh.exe"
+FULL_ZIP = "GeodeGalore-Windows.zip"   # the download for new players (same name every release)
+FULL_DIR = "Geode Galore"              # the folder inside it
+FULL_EXE = "GeodeGalore"               # GeodeGalore.exe + GeodeGalore.pck
 SELFTEST_CODE = 42  # main.gd quits with this under --selftest once its whole screen is built
 
 
@@ -92,7 +97,33 @@ def smoke_test_on(pack, name, template):
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def build_and_test(version, full):
+def build_full():
+    """Exports the whole game and zips it as FULL_ZIP, then self-tests the unzipped copy."""
+    exe = os.path.join(BUILD, "windows", NAME + ".exe")
+    os.makedirs(os.path.dirname(exe), exist_ok=True)
+    run(GODOT, "--headless", "--path", ROOT, "--export-release", PRESET, exe)
+    bundle = os.path.join(BUILD, FULL_ZIP)
+    with zipfile.ZipFile(bundle, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
+        for ext in (".exe", ".pck"):
+            z.write(os.path.join(os.path.dirname(exe), NAME + ext), FULL_DIR + "/" + FULL_EXE + ext)
+    tmp = tempfile.mkdtemp(prefix="geodegalore_full_")
+    try:  # play the download exactly like a new player: unzip it and start it
+        with zipfile.ZipFile(bundle) as z:
+            z.extractall(tmp)
+        game = os.path.join(tmp, FULL_DIR, FULL_EXE + ".exe")
+        env = dict(os.environ, APPDATA=os.path.join(tmp, "appdata"))
+        r = subprocess.run([game, "--headless", "--quit-after", "6000", "--", "--selftest", "--no-update"],
+                           capture_output=True, text=True, env=env, timeout=180)
+        if r.returncode != SELFTEST_CODE:
+            raise SystemExit("THE FULL DOWNLOAD IS BROKEN (self-test exit code %d), nothing was uploaded:\n%s"
+                             % (r.returncode, ((r.stdout or "") + (r.stderr or ""))[-1500:]))
+        print("Smoke test passed on the full download: unzipped, it starts and builds its whole screen.")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    return bundle
+
+
+def build_and_test(version, full=True):
     os.makedirs(BUILD, exist_ok=True)
     pack = os.path.join(BUILD, "%s-update-%s.pck" % (NAME, version))
     run(GODOT, "--headless", "--path", ROOT, "--export-pack", PRESET, pack)
@@ -102,14 +133,7 @@ def build_and_test(version, full):
     smoke_test(pack)
     assets = [pack, sha_file]
     if full:
-        exe = os.path.join(BUILD, "windows", NAME + ".exe")
-        os.makedirs(os.path.dirname(exe), exist_ok=True)
-        run(GODOT, "--headless", "--path", ROOT, "--export-release", PRESET, exe)
-        bundle = os.path.join(BUILD, "%s-%s-%s-windows.zip" % (NAME, stage(), version))
-        with zipfile.ZipFile(bundle, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
-            for name in (NAME + ".exe", NAME + ".pck"):
-                z.write(os.path.join(os.path.dirname(exe), name), NAME + "/" + name)
-        assets.append(bundle)
+        assets.append(build_full())
     return assets
 
 
@@ -124,9 +148,21 @@ def publish(version, notes, repo, assets):
     print("\nPublished %s %s to %s. Games older than it update the next time they start." % (stage(), version, repo))
 
 
+def attach_full():
+    """Builds the full download for the version that's already published and adds it to that release."""
+    text = open(VERSION_FILE, encoding="utf-8").read()
+    version = re.search(r'const VERSION := "([^"]+)"', text).group(1)
+    repo = re.search(r'const RELEASES_REPO := "([^"]+)"', text).group(1)
+    bundle = build_full()
+    run(GH, "release", "upload", "v%s" % version, bundle, "--repo", repo, "--clobber")
+    print("Added %s to v%s." % (FULL_ZIP, version))
+
+
 def main():
+    if "--attach-full" in sys.argv:
+        return attach_full()
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    full = "--full" in sys.argv
+    full = "--no-full" not in sys.argv  # every release gets the full download (--no-full skips it)
     if not args or not re.fullmatch(r"\d+(\.\d+){0,3}", args[0]):
         raise SystemExit(__doc__)
     version, notes = args[0], (args[1] if len(args) > 1 else "")
