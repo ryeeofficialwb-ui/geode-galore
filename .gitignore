@@ -14,3 +14,6 @@ art_source/music_old/
 
 # slim engine template (tools/engine/build_template.ps1 rebuilds it)
 tools/engine/bin/
+
+# python caches (tools/)
+__pycache__/
