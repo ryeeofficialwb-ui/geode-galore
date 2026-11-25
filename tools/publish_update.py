@@ -10,7 +10,7 @@ Versions: Indev 0.1 is the first release. Releases are titled "Geode Galore Inde
 2. Exports the game pack: build/RichFromRocks-update-<version>.pck + its SHA-256 (.pck.sha256). Then
    SELF-TESTS the pack with the real release engine: nothing is published unless the game starts and
    builds its whole screen.
-3. Commits everything, tags it v<version> and pushes to GitHub.
+3. Commits the files git already tracks (new untracked files stay out), tags it v<version> and pushes.
 4. Creates the GitHub Release v<version> on GameVersion.RELEASES_REPO (a PUBLIC repo) with the pack
    and its hash. Games older than <version> download it, check the hash and restart into it.
 Every release also gets the complete game for new players: GeodeGalore-Windows.zip (a "Geode Galore"
@@ -138,9 +138,8 @@ def build_and_test(version, full=True):
 
 
 def publish(version, notes, repo, assets):
-    run("git", "add", "-A")
-    run("git", "commit", "-m", "Release %s %s (v%s)" % (stage(), version, version) + ("\n\n" + notes if notes else "")
-        + "\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>")
+    run("git", "add", "-u")  # only files git already tracks: new, unfinished work stays out of releases
+    run("git", "commit", "-m", "Release %s %s (v%s)" % (stage(), version, version) + ("\n\n" + notes if notes else ""))
     run("git", "tag", "v%s" % version)
     run("git", "push", "origin", "HEAD", "--tags")
     run(GH, "release", "create", "v%s" % version, *assets, "--repo", repo,
