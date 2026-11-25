@@ -8,7 +8,7 @@ signal toast(text: String)
 signal lucky_sale(ore_id: String, extra: int)  # Fool's Gold paid extra on a sale
 signal market_moved       # prices changed (timed restock)
 signal trip_over          # ran out of lives: the mine ticket is used up
-signal found_rock(rock_id: String)    # clearing a stage found a rock (cave stone_chance)
+signal found_rocks(found: Array, rolled: int)  # clearing a stage hit the cave's stone_chance: kept these rock ids out of `rolled`
 signal found_ticket(cave_id: String)  # clearing a stage found a ticket (Ticket Hungry)
 
 const SAVE_PATH := "user://save.cfg"
@@ -30,6 +30,8 @@ var show_tips := true     # Settings > Tips
 var stage := 1            # mining stage (checkpoint)
 var lives := 0.0          # lives left in this stage (halves count: flooding the lighter costs half a life)
 var stage_walls := 0      # walls broken in this stage
+var walls_need := 5       # walls this stage needs (rolled WALLS_PER_STAGE_MIN..MAX when the stage starts)
+var restock_buys := 0     # paid restocks since the shop last restocked by itself (each costs more)
 var best_stage := 1
 var market := {}          # rock / ore id -> price multiplier (supply & demand), 1.0 = normal
 var tickets := {}         # cave id -> mine tickets for that cave
@@ -79,6 +81,8 @@ func _new_game() -> void:
 	stage = 1
 	lives = max_lives()
 	stage_walls = 0
+	walls_need = roll_walls()
+	restock_buys = 0
 	best_stage = 1
 	market = {}
 	market_prev = {}
@@ -125,6 +129,7 @@ func move_market() -> void:
 func restock(move := false) -> void:
 	if move:
 		move_market()
+		restock_buys = 0  # the timed restock makes paying to restock cheap again
 	shop.clear()
 	var pool := {}
 	for id in Config.ROCKS:
@@ -143,10 +148,18 @@ func restock(move := false) -> void:
 	save()
 
 
+## What paying to restock costs right now: x INSTANT_RESTOCK_GROWTH for every paid restock since the last
+## timed one.
+func restock_cost() -> int:
+	return roundi(Config.INSTANT_RESTOCK_COST * pow(Config.INSTANT_RESTOCK_GROWTH, restock_buys))
+
+
 func buy_restock() -> bool:
-	if Config.INSTANT_RESTOCK_COST < 0 or coins < Config.INSTANT_RESTOCK_COST:
+	var cost := restock_cost()
+	if Config.INSTANT_RESTOCK_COST < 0 or coins < cost:
 		return false
-	coins -= Config.INSTANT_RESTOCK_COST
+	coins -= cost
+	restock_buys += 1
 	restock()
 	changed.emit()
 	return true
@@ -221,31 +234,44 @@ func break_current() -> Dictionary:
 ## A wall came down. Returns true if that cleared the stage (stage up).
 func wall_cleared() -> bool:
 	stage_walls += 1
-	var up := stage_walls >= Config.WALLS_PER_STAGE
-	var found_r := ""
+	var up := stage_walls >= walls_need
+	var found_r: Array = []
+	var rolled := 0
 	var found_t := ""
 	if up:
 		stage += 1
 		best_stage = maxi(best_stage, stage)
 		lives = max_lives()
 		stage_walls = 0
-		# the cave may give you a rock (any rock type) ...
+		walls_need = roll_walls()
+		# the cave may give you a pile of rocks: 0 - STAGE_ROCK_MAX of STAGE_ROCK_ROLLS make it up ...
 		if randf() * 100.0 < float(cave_info().get("stone_chance", 0.0)):
-			found_r = _random_rock()
-			if found_r != "":
-				rocks[found_r] = rocks.get(found_r, 0) + 1
+			rolled = Config.STAGE_ROCK_ROLLS
+			for i in rolled:
+				if found_r.size() >= Config.STAGE_ROCK_MAX:
+					break
+				if randf() * 100.0 < Config.STAGE_ROCK_KEEP:
+					var rid := _random_rock()
+					if rid != "":
+						found_r.append(rid)
+						rocks[rid] = rocks.get(rid, 0) + 1
 		# ... and Ticket Hungry a ticket for any cave
 		if randf() * 100.0 < upgrade_value("ticket_hungry"):
 			found_t = Config.CAVES.keys().pick_random()
 			tickets[found_t] = ticket_count(found_t) + 1
 	save()
-	if found_r != "" or found_t != "":
+	if not found_r.is_empty() or found_t != "":
 		changed.emit()
-	if found_r != "":
-		found_rock.emit(found_r)
+	if rolled > 0:
+		found_rocks.emit(found_r, rolled)
 	if found_t != "":
 		found_ticket.emit(found_t)
 	return up
+
+
+## How many walls a new stage needs (WALLS_PER_STAGE_MIN..MAX).
+func roll_walls() -> int:
+	return randi_range(Config.WALLS_PER_STAGE_MIN, maxi(Config.WALLS_PER_STAGE_MIN, Config.WALLS_PER_STAGE_MAX))
 
 
 ## Any rock type for the caves' stone drops (CAVE_STONE_ANY_EQUAL: all equally likely, or by shop_weight).
@@ -269,6 +295,7 @@ func lose_life(amount := 1.0, restart := true) -> bool:
 		stage = maxi(1, stage - 1)
 		lives = max_lives()
 		stage_walls = 0
+		walls_need = roll_walls()
 		if trip_active:  # out of lives: the ticket is used up
 			trip_active = false
 			trip_over.emit()
@@ -353,14 +380,20 @@ func cave_stage(id: String) -> int:
 func _switch_cave(id: String) -> void:
 	if id == cave:
 		return
-	cave_progress[cave] = {"stage": stage, "lives": lives, "stage_walls": stage_walls, "best_stage": best_stage}
+	cave_progress[cave] = {"stage": stage, "lives": lives, "stage_walls": stage_walls, "walls_need": walls_need, "best_stage": best_stage}
 	cave = id
 	var p: Dictionary = cave_progress.get(id, {})
 	cave_progress.erase(id)
 	stage = maxi(1, int(p.get("stage", 1)))
 	lives = clampf(float(p.get("lives", max_lives())), 0.5, max_lives())
-	stage_walls = clampi(int(p.get("stage_walls", 0)), 0, Config.WALLS_PER_STAGE - 1)
+	walls_need = _valid_walls(int(p.get("walls_need", 0)))
+	stage_walls = clampi(int(p.get("stage_walls", 0)), 0, walls_need - 1)
 	best_stage = maxi(stage, int(p.get("best_stage", 1)))
+
+
+## A saved walls-per-stage, or a fresh roll if it's missing / outside WALLS_PER_STAGE_MIN..MAX.
+func _valid_walls(n: int) -> int:
+	return n if n >= Config.WALLS_PER_STAGE_MIN and n <= Config.WALLS_PER_STAGE_MAX else roll_walls()
 
 
 # ------------------------------------------------------------------ tickets
@@ -573,8 +606,15 @@ func ore_name(id: String) -> String:
 	return Config.ORES.get(id, {}).get("name", id)
 
 
+## All rocks live in ONE texture (assets/rocks/rocks.png) and all ores & gems in another (assets/ores/ores.png),
+## sorted by price; scripts/sprite_atlas.gd (made by tools/slice_sheets.py) says where each one is.
+const SHEET_ROCKS := "res://assets/rocks/rocks.png"
+const SHEET_ORES := "res://assets/ores/ores.png"
+const Atlas := preload("res://scripts/sprite_atlas.gd")
+
+
 func rock_texture(id: String) -> Texture2D:
-	return _texture("res://assets/rocks/%s.png" % id)
+	return _sheet_texture(SHEET_ROCKS, Atlas.ROCKS, id)
 
 
 ## The rock art with its empty border cropped off (for small icons in lists / the shop).
@@ -594,7 +634,23 @@ func rock_icon(id: String) -> Texture2D:
 
 
 func ore_texture(id: String) -> Texture2D:
-	return _texture("res://assets/ores/%s.png" % id)
+	return _sheet_texture(SHEET_ORES, Atlas.ORES, id)
+
+
+## One picture cut out of a sheet (an AtlasTexture: no copy, just the region). Not on the sheet = the
+## pink checkerboard.
+func _sheet_texture(sheet: String, regions: Dictionary, id: String) -> Texture2D:
+	var key := sheet + ":" + id
+	if _tex_cache.has(key):
+		return _tex_cache[key]
+	if not regions.has(id) or not ResourceLoader.exists(sheet):
+		return _texture(key)  # (missing: checkerboard)
+	var at := AtlasTexture.new()
+	at.atlas = load(sheet)
+	at.region = regions[id]
+	at.filter_clip = true  # never bleed into the next picture on the sheet
+	_tex_cache[key] = at
+	return at
 
 
 ## assets/ui/<rel> (upgrade icons, ticket...); missing art shows the pink checkerboard.
@@ -647,6 +703,8 @@ func save() -> void:
 	cfg.set_value("mine", "stage", stage)
 	cfg.set_value("mine", "lives", lives)
 	cfg.set_value("mine", "stage_walls", stage_walls)
+	cfg.set_value("mine", "walls_need", walls_need)
+	cfg.set_value("game", "restock_buys", restock_buys)
 	cfg.set_value("mine", "best_stage", best_stage)
 	cfg.set_value("mine", "cave", cave)
 	cfg.set_value("mine", "caves", cave_progress)
@@ -699,7 +757,9 @@ func _load() -> bool:
 			cave_progress[id] = cp[id]
 	stage = maxi(1, cfg.get_value("mine", "stage", 1))
 	lives = clampf(snappedf(float(cfg.get_value("mine", "lives", max_lives())), 0.5), 0.5, max_lives())
-	stage_walls = clampi(cfg.get_value("mine", "stage_walls", 0), 0, Config.WALLS_PER_STAGE - 1)
+	walls_need = _valid_walls(int(cfg.get_value("mine", "walls_need", 0)))
+	stage_walls = clampi(cfg.get_value("mine", "stage_walls", 0), 0, walls_need - 1)
+	restock_buys = maxi(0, int(cfg.get_value("game", "restock_buys", 0)))
 	best_stage = maxi(stage, cfg.get_value("mine", "best_stage", 1))
 	market = {}
 	var mk: Dictionary = cfg.get_value("market", "prices", {})

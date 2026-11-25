@@ -1,4 +1,4 @@
-"""Builds the app icon from the Pebble rock (assets/rocks/rock_02.png).
+"""Builds the app icon from the Pebble rock (rock_02 on assets/rocks/rocks.png).
 
     py -3.12 tools/make_icon.py
 
@@ -10,7 +10,8 @@ from pathlib import Path
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parent.parent
-SRC = ROOT / "assets/rocks/rock_02.png"
+SRC = ROOT / "assets/rocks/rocks.png"  # the Pebble (rock_02), cut from the rocks sheet
+ATLAS = ROOT / "scripts/sprite_atlas.gd"
 
 
 def square(img, side, pad=1):
@@ -24,7 +25,9 @@ def square(img, side, pad=1):
 
 
 def main():
-    img = Image.open(SRC).convert("RGBA")
+    import re
+    x, y, w, h = map(int, re.search(r'"rock_02": Rect2\((\d+), (\d+), (\d+), (\d+)\)', ATLAS.read_text()).groups())
+    img = Image.open(SRC).convert("RGBA").crop((x, y, x + w, y + h))
     square(img, 256).save(ROOT / "icon.png")
     sizes = [16, 24, 32, 48, 64, 128, 256]
     frames = [square(img, s) for s in sizes]

@@ -10,6 +10,7 @@ Writes:
   assets/ui/skin/button.png (+ _hover, _pressed, _disabled), panel.png (menus), slot.png (sunken boxes),
   grabber.png (slider knob) - tiny (16 px) art, scaled up by UI_PIXEL_SCALE in the game
   assets/ui/upgrades/<upgrade id>.png and assets/ui/ticket.png - PLACEHOLDERS (16 x 16), replace freely
+  assets/ui/icons/backpack.png, settings.png - the top bar's icon buttons (16 x 16)
   assets/wall/<cave id>.png (the caves' wall tiles, Config.CAVES)
   art_source/ui/preview.png - everything side by side, 6x, to look at
 The game reads the 9-slice margins from Config (UI_SKIN_*): the corners never stretch, so a redrawn
@@ -237,6 +238,59 @@ TICKET = [
 ]
 
 
+# top-bar buttons (assets/ui/icons/<name>.png): the Backpack and Settings are icon buttons
+MENU_ICONS = {
+    "backpack": [
+        "................",
+        "......KKKK......",
+        ".....KK..KK.....",
+        "....KKKKKKKK....",
+        "...KOOOOOOOOK...",
+        "..KOOyOOOOOOnK..",
+        "..KOOOOOOOOOnK..",
+        "..KnnnnKKnnnnK..",
+        "..KOOOOKyKOOnK..",
+        "..KOOOOOKOOOnK..",
+        "..KOKKKKKKKOnK..",
+        "..KOKOOOOOKOnK..",
+        "..KOKOyOOOKOnK..",
+        "..KOKKKKKKKOnK..",
+        "...KKKKKKKKKK...",
+        "................",
+    ],
+    "settings": [
+        "................",
+        ".......KK.......",
+        "...KK.KMMK.KK...",
+        "..KMMKKMMKKMMK..",
+        "..KMlMMMMMMMMK..",
+        "...KMMMKKMMMK...",
+        ".KKKMMK..KMMKKK.",
+        "KMlMMK....KMMMGK",
+        "KMMMMK....KMMMGK",
+        ".KKKMMK..KMMKKK.",
+        "...KMMMKKMMGK...",
+        "..KMMMMMMMMGGK..",
+        "..KMMKKMMKKGGK..",
+        "...KK.KMGK.KK...",
+        ".......KK.......",
+        "................",
+    ],
+}
+
+
+def make_menu_icons():
+    out_dir = ROOT / "assets/ui/icons"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out = {}
+    for name, grid in MENU_ICONS.items():
+        img = Image.new("RGBA", (16, 16))
+        stamp(img, [r.ljust(16, ".")[:16] for r in grid], PAL)
+        img.save(out_dir / f"{name}.png")
+        out[name] = img
+    return out
+
+
 def make_icons():
     UPG.mkdir(parents=True, exist_ok=True)
     out = {}
@@ -428,6 +482,7 @@ def cut_caves():
 def main():
     skin = make_skin()
     icons = make_icons()
+    icons.update(make_menu_icons())
     cut_caves()
     # preview sheet
     items = list(icons.values())

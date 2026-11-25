@@ -53,14 +53,22 @@ var backpack_overlay: Control
 var rock_view: RockView
 var rock_title: Label
 var hint_label: Label
-var market_btn: Button
-var market_overlay: Control
+var tab_stocks: Button              # Shop > Stock Prices (every price, sortable by profit, and a page per item)
+var stock_page: VBoxContainer
 var market_list: VBoxContainer
 var market_detail: VBoxContainer
 var market_tab := "ores"
 var market_pick := ""               # the item shown on the right
+var market_sort := ""               # "" = normal order, "low" = least profit first, "high" = most profit first
+var sort_btn: Button
+var stock_timer: Label              # Stock Prices: time until prices change
 var tab_m_ores: Button
 var tab_m_rocks: Button
+var practice_btn: Button            # next to the Mine: play any activity, no lighter, no coins
+var practice_overlay: Control
+var mine_overlay: Control           # Select Mine: the Mine button's cave picker
+var mine_list: VBoxContainer
+var mine_claim_btn: Button
 var hints_btn: Button
 var tips_btn: Button                # Settings > Tips (the pop-up tips as you play)
 var _hints: Array[Control] = []     # helper texts that Settings > Hint text hides
@@ -106,11 +114,12 @@ func _ready() -> void:
 	Game.lucky_sale.connect(_on_lucky_sale)
 	Game.market_moved.connect(_refresh)
 	Game.trip_over.connect(_on_trip_over)
-	Game.found_rock.connect(_on_found_rock)
+	Game.found_rocks.connect(_on_found_rocks)
 	Game.found_ticket.connect(_on_found_ticket)
 	wall_view.action_started.connect(func(k: String):
 		if wall_view.practice == "":
-			tutorial.tip("act_" + k, true))  # the first time each move shows up
+			tutorial.tip("act_" + k, true)  # the first time each move shows up
+			tutorial.tip("wick"))  # ... and then what the wick is (waits until the move's tip is closed)
 	wall_view.lighter_out.connect(func(_at: Vector2):
 		if wall_view.practice == "":
 			tutorial.tip("relight", true))
@@ -151,11 +160,15 @@ func _process(delta: float) -> void:
 	_layout_screens()
 	version_label.visible = not on_wall
 	version_label.position = Vector2(14, size.y - version_label.size.y - 8)
-	wall_view.active = on_wall and not (shop_overlay.visible or backpack_overlay.visible or settings_overlay.visible or market_overlay.visible or reset_confirm.visible) 			and (not tutorial.visible or tutorial.practicing())  # the tutorial freezes the wall, except while you try an action
-	wall_view.active = wall_view.active and (Game.trip_active or tutorial.practicing())  # no ticket, no mining
+	wall_view.active = on_wall and not (shop_overlay.visible or backpack_overlay.visible or settings_overlay.visible or practice_overlay.visible or mine_overlay.visible or reset_confirm.visible) 			and (not tutorial.visible or tutorial.practicing())  # the tutorial freezes the wall, except while you try an action
+	wall_view.active = wall_view.active and (Game.trip_active or tutorial.practicing() or wall_view.free_practice)  # no ticket, no mining (Practice is free)
+	if shop_overlay.visible and shop_tab == "stocks":
+		stock_timer.text = "Prices change in %s" % _fmt_time(Game.restock_left())
 	if shop_overlay.visible:
 		shop_timer.text = "Restocks in %s" % _fmt_time(Game.restock_left()) + ("  -  the market moves every restock" if Game.show_hints else "")
 		_update_tickets()
+	elif mine_overlay.visible:
+		_update_tickets()  # the free ticket's countdown
 	if on_wall and wall_view.active:  # about to lose: the whole screen trembles too
 		_shake = maxf(_shake, wall_view.danger() * Config.DANGER_SCREEN_SHAKE)
 		if wall_view.danger() > 0.35:
@@ -219,12 +232,9 @@ func _build() -> void:
 	top.add_child(ticket_label)
 	shop_btn = _top_button("Shop", _open_shop)
 	top.add_child(shop_btn)
-	market_btn = _top_button("Market", _open_market)
-	market_btn.tooltip_text = "Market prices & guide to every ore, gem and rock"
-	top.add_child(market_btn)
-	backpack_btn = _top_button("Backpack", _open_backpack)
+	backpack_btn = _icon_button("backpack", "Backpack", "Backpack: your ores & gems", _open_backpack)
 	top.add_child(backpack_btn)
-	settings_btn = _top_button("Settings", _open_settings)
+	settings_btn = _icon_button("settings", "Settings", "Settings", _open_settings)
 	top.add_child(settings_btn)
 	help_btn = _top_button("?", _open_tutorial)
 	help_btn.custom_minimum_size.x = 48
@@ -245,8 +255,17 @@ func _build() -> void:
 	var body := HBoxContainer.new()
 	body.add_theme_constant_override("separation", 12)
 	main_screen.add_child(body)
+	var left_col := VBoxContainer.new()  # the Mine arrow, with Practice under it
+	left_col.alignment = BoxContainer.ALIGNMENT_CENTER
+	left_col.add_theme_constant_override("separation", 10)
+	body.add_child(left_col)
 	mine_btn = _arrow_button("<", "Mine", _go_wall)
-	body.add_child(mine_btn)
+	left_col.add_child(mine_btn)
+	practice_btn = _button("Practice", _open_practice)
+	practice_btn.custom_minimum_size = Vector2(72, 52)
+	practice_btn.add_theme_font_size_override("font_size", Config.font_px(16))
+	practice_btn.tooltip_text = "Practise any activity: no lighter to look after, no ticket - and no coins"
+	left_col.add_child(practice_btn)
 
 	var center := VBoxContainer.new()
 	center.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -298,9 +317,10 @@ func _build() -> void:
 	add_child(fx_layer)
 
 	_build_shop()
-	_build_market()
 	_build_backpack()
 	_build_settings()
+	_build_practice()
+	_build_select_mine()
 
 	toast_label = _title("", 22, Config.TEXT_COLOR)
 	toast_label.add_theme_constant_override("outline_size", Config.TEXT_OUTLINE_SIZE + 3)
@@ -338,7 +358,8 @@ func _make_overlay(title: String, close: Callable) -> Array:
 	ov.set_anchors_preset(Control.PRESET_FULL_RECT)
 	ov.visible = false
 	ov.gui_input.connect(func(e):
-		if e is InputEventMouseButton and e.pressed: close.call())
+		if e is InputEventMouseButton and e.pressed and e.button_index in [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT]:
+			close.call())  # (the mouse wheel is a "button" too: scrolling must not close the menu)
 	add_child(ov)
 	var cc := CenterContainer.new()
 	cc.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -374,10 +395,11 @@ func _build_shop() -> void:
 	tab_rocks = _button("Rock Shop", _show_shop_tab.bind("rocks"))
 	tab_dwarf = _button("Dwarven Shop", _show_shop_tab.bind("dwarf"))
 	tab_caves = _button("Caves", _show_shop_tab.bind("caves"))
-	for b in [tab_rocks, tab_dwarf, tab_caves]:
+	tab_stocks = _button("Stock Prices", _show_shop_tab.bind("stocks"))
+	for b in [tab_rocks, tab_dwarf, tab_caves, tab_stocks]:
 		b.toggle_mode = true
 		b.button_group = grp
-		b.custom_minimum_size = Vector2(190, 46)
+		b.custom_minimum_size = Vector2(196, 46)
 		b.add_theme_color_override("font_pressed_color", Config.ACCENT)  # the open tab reads gold
 		b.add_theme_color_override("font_hover_pressed_color", Config.ACCENT)
 		tabs.add_child(b)
@@ -445,6 +467,12 @@ func _build_shop() -> void:
 	cave_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	cave_list.add_theme_constant_override("separation", 8)
 	csc.add_child(cave_list)
+
+	stock_page = VBoxContainer.new()
+	stock_page.add_theme_constant_override("separation", 10)
+	stock_page.custom_minimum_size.x = 820
+	v.add_child(stock_page)
+	_build_stock_page(stock_page)
 	_show_shop_tab("rocks", false)
 
 
@@ -455,11 +483,15 @@ func _show_shop_tab(tab: String, sound := true) -> void:
 	rock_page.visible = tab == "rocks"
 	dwarf_page.visible = tab == "dwarf"
 	cave_page.visible = tab == "caves"
-	shop_title.text = {"rocks": "Rock Shop", "dwarf": "Dwarven Shop", "caves": "Caves"}.get(tab, "Shop")
+	stock_page.visible = tab == "stocks"
+	shop_title.text = {"rocks": "Rock Shop", "dwarf": "Dwarven Shop", "caves": "Caves", "stocks": "Stock Prices"}.get(tab, "Shop")
 	tab_rocks.set_pressed_no_signal(tab == "rocks")
 	tab_dwarf.set_pressed_no_signal(tab == "dwarf")
 	tab_caves.set_pressed_no_signal(tab == "caves")
+	tab_stocks.set_pressed_no_signal(tab == "stocks")
 	_update_tickets()
+	if tab == "stocks":
+		_show_market_tab(market_tab, false)
 
 
 func _update_tickets() -> void:
@@ -470,13 +502,21 @@ func _update_tickets() -> void:
 	var left := Game.free_ticket_left()
 	claim_btn.text = "Free %s ticket!" % Game.cave_name(Game.first_cave()) if left <= 0.0 else "Free ticket in %s" % _fmt_time(left)
 	claim_btn.disabled = left > 0.0
+	if mine_claim_btn:
+		mine_claim_btn.text = claim_btn.text
+		mine_claim_btn.disabled = claim_btn.disabled
 
 
-## The Caves tab: one row per cave with its wall, perks, your tickets, Buy and Go down.
+## The Caves tab (and the Select Mine popup): one row per cave with its wall, perks, your tickets, Buy
+## and Go down.
 func _rebuild_caves() -> void:
-	if cave_list == null:
-		return
-	for c in cave_list.get_children():
+	for list in [cave_list, mine_list]:
+		if list != null:
+			_fill_caves(list)
+
+
+func _fill_caves(list: VBoxContainer) -> void:
+	for c in list.get_children():
 		c.queue_free()
 	for id in Config.CAVES:
 		var cv: Dictionary = Config.CAVES[id]
@@ -517,7 +557,7 @@ func _rebuild_caves() -> void:
 		if Game.trip_active and not here:
 			go.tooltip_text = "Finish your trip in %s first (it ends when you run out of lives)" % Game.cave_name()
 		row.add_child(go)
-		cave_list.add_child(card)
+		list.add_child(card)
 
 
 func _rebuild_upgrades() -> void:
@@ -586,12 +626,13 @@ func _market_tag(id: String, fs: int) -> Label:
 	return l
 
 
-## Market & Guide: today's price of everything (vs normal, and how it moved at the last restock), and
-## a page for each ore / gem (lore, where to find it) and rock.
-func _build_market() -> void:
-	var o := _make_overlay("Market & Guide", _close_overlays)
-	market_overlay = o[0]
-	var v: VBoxContainer = o[1]
+## Shop > Stock Prices: today's price of everything (vs normal, how it moved at the last restock and the
+## profit in it), sortable from least to most profit, and a page for each ore / gem (lore, where to find
+## it) and rock.
+const STOCK_COLS := 58                 # width of each number column in the list (and its header)
+
+
+func _build_stock_page(v: VBoxContainer) -> void:
 	var tabs := HBoxContainer.new()
 	tabs.add_theme_constant_override("separation", 8)
 	v.add_child(tabs)
@@ -601,25 +642,65 @@ func _build_market() -> void:
 	for b in [tab_m_ores, tab_m_rocks]:
 		b.toggle_mode = true
 		b.button_group = grp
-		b.custom_minimum_size = Vector2(190, 46)
+		b.custom_minimum_size = Vector2(150, 44)
 		b.add_theme_color_override("font_pressed_color", Config.ACCENT)
 		b.add_theme_color_override("font_hover_pressed_color", Config.ACCENT)
 		tabs.add_child(b)
-	v.add_child(_hint(_label("Prices change at every shop restock. Click anything to read about it.", 16, Config.MUTED_TEXT)))
+	var sp := Control.new()
+	sp.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tabs.add_child(sp)
+	stock_timer = _label("", 18, Config.ACCENT)
+	stock_timer.tooltip_text = "Every price moves when the shop restocks by itself (paying to restock doesn't move them)"
+	stock_timer.mouse_filter = Control.MOUSE_FILTER_PASS
+	stock_timer.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	tabs.add_child(stock_timer)
+	sort_btn = _button("", _cycle_sort)
+	sort_btn.custom_minimum_size = Vector2(260, 44)
+	sort_btn.add_theme_font_size_override("font_size", Config.font_px(16))
+	sort_btn.tooltip_text = "Click to change the order"
+	tabs.add_child(sort_btn)
+	_update_sort_btn()
+	var hint := _hint(_label("Prices change at every restock. Profit: ores = coins above (or below) their normal price; rocks = what's inside on average minus what they cost.", 15, Config.MUTED_TEXT)) as Label
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hint.custom_minimum_size.x = 800
+	v.add_child(hint)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
 	v.add_child(row)
+	var left := VBoxContainer.new()
+	left.add_theme_constant_override("separation", 2)
+	row.add_child(left)
+	# column names over the list (same widths as the rows below)
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 8)
+	head.custom_minimum_size.x = 480
+	left.add_child(head)
+	var head_pad := Control.new()
+	head_pad.custom_minimum_size.x = 8 + 32
+	head_pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(head_pad)
+	for col in [["Price", "Price right now"], ["Now", "Price vs normal"], ["Moved", "Change at the last restock"], ["Profit", "Ores: coins above / below the normal price.  Rocks: worth inside (average) minus price."]]:
+		var hl := _label(col[0], 14, Config.MUTED_TEXT)
+		hl.custom_minimum_size.x = STOCK_COLS
+		hl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		hl.tooltip_text = col[1]
+		hl.mouse_filter = Control.MOUSE_FILTER_PASS
+		head.add_child(hl)
+	var head_end := Control.new()
+	head_end.custom_minimum_size.x = 10 + 8  # the rows' right inset + the scroll bar
+	head.add_child(head_end)
 	var sc := ScrollContainer.new()
-	sc.custom_minimum_size = Vector2(500, 430)
+	sc.custom_minimum_size = Vector2(480, 360)
 	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	row.add_child(sc)
+	left.add_child(sc)
 	market_list = VBoxContainer.new()
 	market_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	market_list.add_theme_constant_override("separation", 4)
 	sc.add_child(market_list)
 	var dcard := PanelContainer.new()
 	dcard.add_theme_stylebox_override("panel", slot_style)
-	dcard.custom_minimum_size = Vector2(400, 430)
+	dcard.custom_minimum_size = Vector2(328, 380)
+	dcard.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(dcard)
 	var dsc := ScrollContainer.new()
 	dsc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -628,12 +709,6 @@ func _build_market() -> void:
 	market_detail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	market_detail.add_theme_constant_override("separation", 6)
 	dsc.add_child(market_detail)
-
-
-func _open_market() -> void:
-	_close_overlays()
-	market_overlay.visible = true
-	_show_market_tab(market_tab, false)
 
 
 func _show_market_tab(tab: String, sound := true) -> void:
@@ -647,17 +722,49 @@ func _show_market_tab(tab: String, sound := true) -> void:
 	_rebuild_market()
 
 
+## Normal order -> least profit first -> most profit first -> ...
+func _cycle_sort() -> void:
+	Sfx.play("click")
+	market_sort = {"": "low", "low": "high"}.get(market_sort, "")
+	_update_sort_btn()
+	_rebuild_market()
+
+
+func _update_sort_btn() -> void:
+	sort_btn.text = {"low": "Sort: least -> most profit", "high": "Sort: most -> least profit"}.get(market_sort, "Sort: normal order")
+
+
 func _rebuild_market() -> void:
-	if market_list == null or not market_overlay.visible:
+	if market_list == null or not (shop_overlay.visible and shop_tab == "stocks"):
 		return
 	for c in market_list.get_children():
 		c.queue_free()
-	var ids: Array = Config.ORES.keys() if market_tab == "ores" else _rocks_by_price()
+	var ore := market_tab == "ores"
+	var ids: Array = Config.ORES.keys() if ore else _rocks_by_price()
+	if market_sort != "":
+		var profit := {}
+		var order := {}
+		for i in ids.size():
+			profit[ids[i]] = _profit(ids[i], ore)
+			order[ids[i]] = i
+		var low := market_sort == "low"
+		ids.sort_custom(func(a, b):
+			if profit[a] != profit[b]:
+				return profit[a] < profit[b] if low else profit[a] > profit[b]
+			return order[a] < order[b])  # ties keep the normal order
 	if market_pick == "" or not ids.has(market_pick):
 		market_pick = ids[0]
 	for id in ids:
 		market_list.add_child(_market_row(id))
 	_show_market_detail(market_pick)
+
+
+## Coins of profit in one: an ore sold now vs its normal price; a rock = its average worth inside at
+## today's prices minus what it costs in the shop today.
+func _profit(id: String, ore: bool) -> int:
+	if ore:
+		return Game.ore_price(id) - int(Config.ORES[id].sell_price)
+	return roundi(_rock_worth(id)) - Game.rock_price(id)
 
 
 func _rocks_by_price() -> Array:
@@ -666,7 +773,7 @@ func _rocks_by_price() -> Array:
 	return ids
 
 
-## One line of the list: icon, name, price now, % of normal, last move. Click it for its page.
+## One line of the list: icon, name, price now, % of normal, last move, profit. Click it for its page.
 func _market_row(id: String) -> Control:
 	var ore := market_tab == "ores"
 	var b := Button.new()
@@ -698,20 +805,24 @@ func _market_row(id: String) -> Control:
 	h.add_child(name_l)
 	var price := Game.ore_price(id) if ore else Game.rock_price(id)
 	var pl := _label("%d" % price, 16, Config.ACCENT)
-	pl.custom_minimum_size.x = 64
+	pl.custom_minimum_size.x = STOCK_COLS
 	pl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	h.add_child(pl)
 	var pct := roundi(Game.market_mult(id) * 100.0)
 	var ml := _label("%d%%" % pct, 16, _pct_color(pct - 100, not ore))
-	ml.custom_minimum_size.x = 64
+	ml.custom_minimum_size.x = STOCK_COLS
 	ml.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	h.add_child(ml)
 	var tr := Game.market_trend(id)
 	var tl := _label(("+%d%%" % tr) if tr > 0 else ("%d%%" % tr) if tr < 0 else "-", 16, _pct_color(tr, not ore))
-	tl.custom_minimum_size.x = 64
+	tl.custom_minimum_size.x = STOCK_COLS
 	tl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	tl.tooltip_text = "Change at the last restock"
 	h.add_child(tl)
+	var pf := _profit(id, ore)
+	var fl := _label(("+%d" % pf) if pf > 0 else ("%d" % pf) if pf < 0 else "0", 16, _pct_color(pf))
+	fl.custom_minimum_size.x = STOCK_COLS
+	fl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	h.add_child(fl)
 	for c in h.get_children():
 		(c as Control).mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return b
@@ -745,6 +856,8 @@ func _show_market_detail(id: String) -> void:
 		_detail_line("Sells for %d coins" % Game.ore_price(id), Config.ACCENT)
 		_detail_line("Market: %d%% of the normal %d  (%s at the last restock)" % [pct, int(o.sell_price),
 				("+%d%%" % tr) if tr > 0 else ("%d%%" % tr) if tr < 0 else "no change"], _pct_color(pct - 100))
+		var pf := _profit(id, true)
+		_detail_line("Profit: %s coins each vs the normal price" % (("+%d" % pf) if pf > 0 else str(pf)), _pct_color(pf))
 		_detail_line("In your backpack: %d" % int(Game.ores.get(id, 0)), Config.TEXT_COLOR)
 		var ch: Array = o.get("chance", [0, 0])
 		_detail_line("Chance per roll: %s%% in the cheapest rocks, up to %s%% in the best" % [String.num(float(ch[0]), 3), String.num(float(ch[1]), 2)], Config.TEXT_COLOR)
@@ -753,7 +866,7 @@ func _show_market_detail(id: String) -> void:
 		market_detail.add_child(HSeparator.new())
 		var lore := _label(Config.ORE_LORE.get(id, "Nobody knows much about this one yet."), 16, Config.TEXT_COLOR)
 		lore.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		lore.custom_minimum_size.x = 350
+		lore.custom_minimum_size.x = 290
 		market_detail.add_child(lore)
 	else:
 		var r: Dictionary = Config.ROCKS[id]
@@ -770,13 +883,15 @@ func _show_market_detail(id: String) -> void:
 				parts.append("%s x%s" % [Game.ore_name(oid), String.num(float(bonus[oid]), 1)])
 			_detail_line("Speciality: " + ", ".join(parts), Config.TEXT_COLOR)
 		_detail_line("Worth inside, on average: ~%d coins at today's prices" % roundi(_rock_worth(id)), Config.ACCENT)
+		var pf := _profit(id, false)
+		_detail_line("Profit: %s coins per rock, on average" % (("+%d" % pf) if pf > 0 else str(pf)), _pct_color(pf))
 		_detail_line("You own: %d" % int(Game.rocks.get(id, 0)), Config.TEXT_COLOR)
 
 
 func _detail_line(text: String, col: Color) -> void:
 	var l := _label(text, 16, col)
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	l.custom_minimum_size.x = 350
+	l.custom_minimum_size.x = 290
 	market_detail.add_child(l)
 
 
@@ -853,6 +968,70 @@ Music: Gambler Symphony, MeltdownTheme, Shop Theme (Thameuszin)" % [
 	v.add_child(credits)
 
 
+## Practice (the button under the Mine): pick any activity and play it as long as you like. No lighter to
+## look after, no ticket needed, nothing lost - and no coins.
+const PRACTICE_EXTRA := {  # the lighter itself can be practised too
+	"flick": ["LIGHTER FLICKS", "Keep the flame alive: flick SPACE in the gold zone, never when it's full"],
+	"relight": ["RELIGHTING", "Strike SPACE while the marker is in the gold zone"],
+}
+
+
+func _build_practice() -> void:
+	var o := _make_overlay("Practice", _close_overlays)
+	practice_overlay = o[0]
+	var v: VBoxContainer = o[1]
+	var info := _label("Pick anything to practise. No lighter to worry about, no ticket, no lives - and no coins.", 16, Config.MUTED_TEXT)
+	info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	info.custom_minimum_size.x = 800
+	v.add_child(info)
+	var grid := GridContainer.new()
+	grid.columns = 3
+	grid.add_theme_constant_override("h_separation", 10)
+	grid.add_theme_constant_override("v_separation", 10)
+	v.add_child(grid)
+	var all := {}
+	for k in WallView.KIND_INFO:
+		all[k] = WallView.KIND_INFO[k]
+	for k in PRACTICE_EXTRA:
+		all[k] = PRACTICE_EXTRA[k]
+	for k in all:
+		var b := Button.new()
+		b.custom_minimum_size = Vector2(262, 104)
+		b.focus_mode = Control.FOCUS_NONE
+		b.pressed.connect(_start_practice.bind(k))
+		var inner := VBoxContainer.new()
+		inner.set_anchors_preset(Control.PRESET_FULL_RECT)
+		inner.offset_left = 12
+		inner.offset_right = -12
+		inner.offset_top = 6
+		inner.offset_bottom = -10
+		inner.alignment = BoxContainer.ALIGNMENT_CENTER
+		inner.add_theme_constant_override("separation", 0)
+		inner.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		b.add_child(inner)
+		var t := _title(all[k][0], 22, Config.ACCENT)
+		t.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		inner.add_child(t)
+		var d := _label(all[k][1], 14, Config.TEXT_COLOR)
+		d.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		d.custom_minimum_size.x = 236
+		d.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		inner.add_child(d)
+		grid.add_child(b)
+
+
+func _open_practice() -> void:
+	_close_overlays()
+	practice_overlay.visible = true
+
+
+func _start_practice(k: String) -> void:
+	Sfx.play("click")
+	close_overlays_silent()
+	wall_view.begin_free_practice(k)
+	_slide_to(true)
+
+
 ## "Label ........ 70%" with a slider under it. setter gets 0..1.
 func _volume_row(parent: Control, text: String, value: float, setter: Callable) -> HSlider:
 	var row := HBoxContainer.new()
@@ -866,6 +1045,7 @@ func _volume_row(parent: Control, text: String, value: float, setter: Callable) 
 	sl.min_value = 0.0
 	sl.max_value = 1.0
 	sl.step = 0.05
+	sl.scrollable = false  # the mouse wheel scrolls menus; it must never nudge a volume by accident
 	sl.custom_minimum_size.y = 28
 	sl.value_changed.connect(func(x: float):
 		pct.text = "%d%%" % roundi(x * 100.0)
@@ -920,11 +1100,14 @@ func _refresh() -> void:
 		row.add_child(_button("Sell", _sell.bind(id, 1)))
 		row.add_child(_button("All", _sell.bind(id, count)))
 		ore_list.add_child(row)
-	backpack_btn.text = ("Backpack (%d)" % _ore_count()) if not Game.ores.is_empty() else "Backpack"
+	var label: String = backpack_btn.get_meta("label", "")  # "" when it shows the backpack icon
+	if label == "":  # the icon, with how many ores are in it in a little badge on its corner
+		var badge: Label = backpack_btn.get_meta("badge")
+		badge.text = str(_ore_count()) if not Game.ores.is_empty() else ""
+	else:
+		backpack_btn.text = ("%s (%d)" % [label, _ore_count()]) if not Game.ores.is_empty() else label
 	sell_all_btn.text = "Sell Everything (+%d)" % total
 	sell_all_btn.disabled = total <= 0
-	restock_btn.text = "Restock now (%d coins)" % Config.INSTANT_RESTOCK_COST
-	restock_btn.disabled = Game.coins < Config.INSTANT_RESTOCK_COST
 	_rebuild_shop()
 	_rebuild_upgrades()
 	_rebuild_caves()
@@ -933,6 +1116,9 @@ func _refresh() -> void:
 
 
 func _rebuild_shop() -> void:
+	restock_btn.text = "Restock now (%d coins)" % Game.restock_cost()
+	restock_btn.tooltip_text = "Each restock you pay for costs x%s more, until the shop restocks by itself" % String.num(Config.INSTANT_RESTOCK_GROWTH, 1)
+	restock_btn.disabled = Game.coins < Game.restock_cost()
 	for c in shop_grid.get_children():
 		c.queue_free()
 	for i in Game.shop.size():
@@ -1129,12 +1315,23 @@ func _enter_cave(id: String) -> void:
 	_slide_to(true)
 
 
-## Clearing a stage found a rock (the cave's stone_chance).
-func _on_found_rock(rock_id: String) -> void:
+## Clearing a stage hit the cave's stone_chance: a pile of rocks, 0-3 of them made it into your bag.
+func _on_found_rocks(found: Array, rolled: int) -> void:
+	var at := Vector2(size.x * 0.5, size.y * 0.3)
+	if found.is_empty():
+		Sfx.play("drop_none")
+		_float_text(at, "Found %d rocks... but none of them made it up" % rolled, Config.MUTED_TEXT, 0.6)
+		return
 	Sfx.play("drop_rare")
-	_float_text(Vector2(size.x * 0.5, size.y * 0.3), "Found a %s!  (in Your Rocks)" % Game.rock_name(rock_id), Config.ACCENT, 0.6)
+	var names := {}
+	for rid in found:
+		names[Game.rock_name(rid)] = int(names.get(Game.rock_name(rid), 0)) + 1
+	var parts := []
+	for n in names:
+		parts.append(("%dx %s" % [names[n], n]) if names[n] > 1 else n)
+	_float_text(at, "Found %d of %d rocks!  %s  (in Your Rocks)" % [found.size(), rolled, ", ".join(parts)], Config.ACCENT, 0.6)
 	if rock_view.rock_id == "" and not on_wall:
-		_auto_place(rock_id)
+		_auto_place(found[0])
 
 
 ## Ticket Hungry found a ticket when you cleared a stage.
@@ -1204,7 +1401,7 @@ func _close_overlays() -> void:
 
 
 func close_overlays_silent() -> void:
-	for o in [shop_overlay, backpack_overlay, settings_overlay, market_overlay]:
+	for o in [shop_overlay, backpack_overlay, settings_overlay, practice_overlay, mine_overlay]:
 		if o:
 			o.visible = false
 	Sfx.play_music("mine" if on_wall else "main")  # the shop's music fades back to this screen's
@@ -1216,27 +1413,41 @@ func _open_tutorial() -> void:
 
 
 # ================================================================== screens
-## The Mine button: needs a ticket unless you're already on a trip. With tickets for more than one cave
-## you pick in the Caves tab (the cave you were in last goes first if you still have its tickets).
+## The Mine button: Select Mine pops up so you pick which cave to go down (each needs its own ticket). On a
+## trip your cave's row says Continue (the others wait until the trip is over).
 func _go_wall() -> void:
-	if not Game.trip_active:
-		var kinds := 0
-		for id in Config.CAVES:
-			if Game.ticket_count(id) > 0:
-				kinds += 1
-		if kinds > 1 and Game.ticket_count(Game.cave) <= 0:
-			Sfx.play("click")
-			_open_shop("caves")
-			show_toast("Pick a cave to go down")
-			return
-		if not Game.start_trip():
-			Sfx.play("error")
-			_open_shop("caves")
-			show_toast("You need a ticket to go down the mine!")
-			return
-		wall_view.change_cave()
-		show_toast("Ticket used - welcome to %s!" % Game.cave_name())
-	_slide_to(true)
+	_open_select_mine()  # always: on a trip your cave's row says Continue
+
+
+func _build_select_mine() -> void:
+	var o := _make_overlay("Select Mine", _close_overlays)
+	mine_overlay = o[0]
+	var v: VBoxContainer = o[1]
+	var top := HBoxContainer.new()
+	top.add_theme_constant_override("separation", 12)
+	v.add_child(top)
+	var info := _label("Pick a mine to go down. Each trip uses one ticket for that mine.", 16, Config.MUTED_TEXT)
+	info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	info.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	top.add_child(info)
+	mine_claim_btn = _button("", _claim_ticket)
+	mine_claim_btn.custom_minimum_size = Vector2(230, 48)
+	top.add_child(mine_claim_btn)
+	var sc := ScrollContainer.new()
+	sc.custom_minimum_size = Vector2(820, 440)
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	v.add_child(sc)
+	mine_list = VBoxContainer.new()
+	mine_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	mine_list.add_theme_constant_override("separation", 8)
+	sc.add_child(mine_list)
+
+
+func _open_select_mine() -> void:
+	_close_overlays()
+	_fill_caves(mine_list)
+	_update_tickets()
+	mine_overlay.visible = true
 
 
 func _go_main() -> void:
@@ -1255,7 +1466,9 @@ func _slide_to(wall: bool) -> void:
 	if on_wall == wall:
 		return
 	on_wall = wall
-	if wall and Game.trip_active:
+	if not wall and wall_view.free_practice:
+		wall_view.end_free_practice()  # back up: the mine is just as you left it
+	if wall and Game.trip_active and not wall_view.free_practice:
 		tutorial.tip("lighter")
 	Sfx.play("screen_slide")
 	if not shop_overlay.visible:
@@ -1317,12 +1530,14 @@ func _on_action_done(perfect: bool, at: Vector2, combo: int, mult: float) -> voi
 	var pos := wall_view.global_position + at - fx_layer.global_position
 	var base := randi_range(Config.PERFECT_COINS_MIN, Config.PERFECT_COINS_MAX) if perfect else Config.GOOD_COINS
 	var coins := roundi(base * mult * Game.mine_coin_mult())
+	if wall_view.practice != "":
+		coins = 0  # practice (and the tutorial) never pays
 	Game.add_coins(coins)
 	if coins > 0:
 		_bump(coin_label)
 	if perfect:
 		Sfx.play("slice_perfect", minf(1.0 + 0.04 * (combo - 1), 1.6))
-		_float_text(pos, "PERFECT!  +%d" % coins, Config.ACCENT, 0.0)
+		_float_text(pos, "PERFECT!" + ("  +%d" % coins if coins > 0 else ""), Config.ACCENT, 0.0)
 	else:
 		Sfx.play("slice_good")
 		_float_text(pos, "Good" + ("  +%d" % coins if coins > 0 else ""), Config.TEXT_COLOR, 0.0)
@@ -1345,7 +1560,7 @@ func _on_wall_down(at: Vector2) -> void:
 	var bonus := roundi(Config.WALL_BREAK_BONUS * Game.mine_coin_mult())
 	Game.add_coins(bonus)
 	var pos := wall_view.global_position + at - fx_layer.global_position
-	var count := "" if wall_view.practice != "" else "  (%d / %d)" % [mini(Game.stage_walls + 1, Config.WALLS_PER_STAGE), Config.WALLS_PER_STAGE]
+	var count := "" if wall_view.practice != "" else "  (%d / %d)" % [mini(Game.stage_walls + 1, Game.walls_need), Game.walls_need]
 	_float_text(pos, "Wall down!" + count + ("  +%d" % bonus if bonus > 0 else ""), Config.ACCENT, 0.0)
 
 
@@ -1480,6 +1695,44 @@ func _button(text: String, cb: Callable) -> Button:
 func _top_button(text: String, cb: Callable) -> Button:
 	var b := _button(text, cb)
 	b.custom_minimum_size = Vector2(110, 44)
+	return b
+
+
+## Top-bar icon button (assets/ui/icons/<icon_name>.png, drawn by tools/make_ui.py). Falls back to the
+## word if the icon is missing.
+func _icon_button(icon_name: String, fallback: String, tip: String, cb: Callable) -> Button:
+	var b := _button("", cb)
+	b.tooltip_text = tip
+	var path := UI_DIR + "icons/%s.png" % icon_name
+	if ResourceLoader.exists(path):
+		# the icon is a picture ON the button (not Button.icon: that one gets squeezed out by any text)
+		b.custom_minimum_size = Vector2(60, 44)
+		var pic := TextureRect.new()
+		pic.texture = load(path)
+		pic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		pic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		pic.set_anchors_preset(Control.PRESET_FULL_RECT)
+		pic.offset_left = 8
+		pic.offset_top = 4
+		pic.offset_right = -8
+		pic.offset_bottom = -10  # clear of the button's raised underside
+		pic.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		b.add_child(pic)
+		var badge := _label("", 16, Config.ACCENT)  # a count in the corner (the Backpack's ores)
+		badge.add_theme_constant_override("outline_size", Config.TEXT_OUTLINE_SIZE + 2)
+		badge.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+		badge.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+		badge.grow_vertical = Control.GROW_DIRECTION_BEGIN
+		badge.offset_right = 2
+		badge.offset_bottom = 6
+		badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		b.add_child(badge)
+		b.set_meta("badge", badge)
+		b.set_meta("label", "")
+	else:
+		b.text = fallback
+		b.custom_minimum_size = Vector2(110, 44)
+		b.set_meta("label", fallback)
 	return b
 
 
@@ -1778,7 +2031,7 @@ func _dev_shots(dir: String) -> void:
 	await get_tree().create_timer(0.3).timeout
 	get_viewport().get_texture().get_image().save_png(dir + "/5b2_caves.png")
 	Game.tickets = {}
-	_open_market()
+	_open_shop("stocks")
 	await get_tree().create_timer(0.3).timeout
 	get_viewport().get_texture().get_image().save_png(dir + "/5c_market.png")
 	market_pick = "lapis"
@@ -1789,7 +2042,21 @@ func _dev_shots(dir: String) -> void:
 	await get_tree().create_timer(0.3).timeout
 	get_viewport().get_texture().get_image().save_png(dir + "/5e_market_rocks.png")
 	print("market rows: ores %d, rocks %d" % [Config.ORES.size(), market_list.get_child_count()])
+	_cycle_sort()
+	await get_tree().create_timer(0.3).timeout
+	get_viewport().get_texture().get_image().save_png(dir + "/5e2_market_sorted.png")
+	var profits := []
+	for id in _rocks_by_price():
+		profits.append(_profit(id, false))
+	profits.sort()
+	print("rock profits, least to most: ", profits)
+	market_sort = ""
+	_update_sort_btn()
 	_show_market_tab("ores", false)
+	_close_overlays()
+	_open_practice()
+	await get_tree().create_timer(0.3).timeout
+	get_viewport().get_texture().get_image().save_png(dir + "/5g_practice.png")
 	_close_overlays()
 	Game.set_show_hints(false)
 	await get_tree().create_timer(0.3).timeout
@@ -1803,8 +2070,12 @@ func _dev_shots(dir: String) -> void:
 	await get_tree().create_timer(0.3).timeout
 	get_viewport().get_texture().get_image().save_png(dir + "/7_settings.png")
 	_close_overlays()
+	var shot0 := func(name: String): get_viewport().get_texture().get_image().save_png(dir + "/" + name + ".png")
 	Game.tickets = {Game.first_cave(): 3}
 	_go_wall()
+	await get_tree().create_timer(0.3).timeout
+	shot0.call("7b_select_mine")
+	_enter_cave(Game.first_cave())
 	print("went down the mine: trip %s, tickets left %d" % [Game.trip_active, Game.ticket_count()])
 	var shot := func(name: String): get_viewport().get_texture().get_image().save_png(dir + "/" + name + ".png")
 	await get_tree().create_timer(1.0).timeout
@@ -1983,15 +2254,18 @@ func _dev_shots(dir: String) -> void:
 	Game.start_trip()  # a new ticket for the next part of the demo
 	while wall_view.light_state == "off":
 		wall_view.flick()  # "off" -> lit after a few flicks
-	for w in Config.WALLS_PER_STAGE:
+	var need := Game.walls_need
+	for w in need:
 		await get_tree().create_timer(0.7).timeout
 		wall_view.ensure_lit()
 		wall_view.new_action("drill")
 		wall_view.actions_left = 1
 		wall_view.dev_do()
 		await get_tree().create_timer(1.6).timeout
-	shot.call("19_stage_up")
-	print("after %d walls: stage %d, lives %d, walls %d" % [Config.WALLS_PER_STAGE, Game.stage, Game.lives, Game.stage_walls])
+		if w == need - 1:
+			shot.call("19_stage_up")  # the break after the stage is cleared
+		wall_view.end_rest()
+	print("after %d walls: stage %d, lives %d, walls %d (next stage needs %d)" % [need, Game.stage, Game.lives, Game.stage_walls, Game.walls_need])
 	print("coins after wall: ", Game.coins)
 	await get_tree().create_timer(0.6).timeout
 	wall_view.ensure_lit()
@@ -2085,10 +2359,10 @@ func _dev_shots(dir: String) -> void:
 	shot.call("u_trip_over")
 	print("after running out of lives: trip %s, on the wall %s" % [Game.trip_active, on_wall])
 	Game.tickets = {}
-	_go_wall()  # no ticket -> Dwarven Shop
+	_go_wall()  # no ticket -> Select Mine (Go down greyed out)
 	await get_tree().create_timer(0.4).timeout
 	shot.call("u_need_ticket")
-	print("mine without a ticket: on the wall %s, shop open %s on %s" % [on_wall, shop_overlay.visible, shop_tab])
+	print("mine without a ticket: on the wall %s, select mine open %s" % [on_wall, mine_overlay.visible])
 
 	Game.reset()
 	Game.tutorial_done = false

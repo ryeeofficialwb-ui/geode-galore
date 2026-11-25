@@ -74,6 +74,9 @@ const MARKET_BAD_COLOR := Color("#f68181")  # configurable
 const ALLOW_DUPLICATE_SLOTS := false  # configurable
 ## Pay to restock right now. Set to -1 to hide the button.
 const INSTANT_RESTOCK_COST := 25  # configurable
+## Every paid restock makes the next one cost this many times more (25 -> 63 -> 156 -> ...). It goes back
+## to INSTANT_RESTOCK_COST when the shop restocks by itself on its timer.
+const INSTANT_RESTOCK_GROWTH := 2.5  # configurable
 
 
 # ------------------------------------------------------------------ DWARVEN SHOP  (tickets & upgrades)
@@ -105,6 +108,11 @@ const CAVES := {  # configurable (whole table)
 ## Rocks found in caves: true = every rock type is as likely as any other; false = they follow shop_weight
 ## (cheap rocks more often).
 const CAVE_STONE_ANY_EQUAL := true  # configurable
+## When a stage hits its stone_chance you find a pile of STAGE_ROCK_ROLLS rocks; each one has
+## STAGE_ROCK_KEEP % to survive the trip up, and you keep at most STAGE_ROCK_MAX: so 0-3 of the 5.
+const STAGE_ROCK_ROLLS := 5  # configurable
+const STAGE_ROCK_KEEP := 50.0  # configurable  (%)
+const STAGE_ROCK_MAX := 3  # configurable
 ## Upgrades. Level 1 gives "first", the last level gives exactly "max"; the levels in between follow a
 ## smooth curve (so each level of Miner's Favor adds a bit less than the one before).
 ##   name / text   shown in the shop ("text" says what the number is)
@@ -130,7 +138,7 @@ const FOOLS_GOLD_GEMS := true  # configurable  (false = Fool's Gold only works w
 
 
 # ------------------------------------------------------------------ ROCK TYPES
-## id: also the file name -> assets/rocks/<id>.png
+## id: also its name on the rocks texture (assets/rocks/rocks.png, packed by tools/slice_sheets.py)
 ##   name        shown in the game
 ##   price       base shop price (coins)
 ##   shop_weight how often it shows up in the shop compared to others (bigger = more common, 0 = never)
@@ -179,7 +187,7 @@ const ROCKS := {  # configurable (whole table)
 
 
 # ------------------------------------------------------------------ ORE / GEM TYPES
-## id: also the file name -> assets/ores/<id>.png   (cut from art_source/sheet_v2.png by tools/slice_sheets.py)
+## id: also its name on the ores & gems texture (assets/ores/ores.png, packed by tools/slice_sheets.py)
 ##   name        shown in the game
 ##   sell_price  coins you get for selling one, before the market (see MARKET_* above)
 ##   type        "ore" or "gem": Miner's Favor / Rocky Riches boost ores, Jeweler's Favor boosts gems
@@ -226,7 +234,7 @@ const ORES := {  # configurable (whole table)
 }
 
 
-## Lore shown when you click an ore / gem in the Market & Guide (write your own!).
+## Lore shown when you click an ore / gem in Shop > Stock Prices (write your own!).
 const ORE_LORE := {  # configurable
 	"lead": "Soft, grey and heavy for its size. Miners use it for weights and sinkers, and nobody has ever bragged about finding it.",
 	"copper": "The first metal people ever worked. It turns green with age, which the dwarves call 'getting wise'.",
@@ -281,6 +289,9 @@ const WALL_ACTIONS_EXTRA_MAX := 6  # configurable  (never more than this many ex
 ## (buttons, circles, lines, the menu). The lighter is held from below, so it may run off the bottom.
 const SAFE_BORDER := 16  # configurable  (px)
 const WALL_RESPAWN_DELAY := 1.1  # configurable  (seconds the rubble falls before a new wall)
+## After every wall (and every stage cleared) you get a break: nothing burns down until you click or
+## press SPACE for the next wall.
+const REST_BETWEEN_WALLS := true  # configurable
 const SCREEN_SLIDE_TIME := 0.35  # configurable  (seconds to slide between screens)
 const ACTION_GAP := 0.3  # configurable  (pause in seconds between two actions)
 
@@ -297,9 +308,11 @@ const ACTION_WEIGHTS := {  # configurable
 	"spin": 12,     # hold and spin your cursor round a circle, fast (like an osu! spinner)
 }
 ## Which stage each move style starts showing up at (your stage + the cave's head_start, see CAVES).
+## Stages 1-5 add one move each (stage 1 is only Slash); stage 6 brings in all the rest, Tap included
+## (the circles are the hardest, so they're saved for later / the harder caves).
 const ACTION_UNLOCK := {  # configurable
-	"tap": 1, "zigzag": 1, "slash": 1, "drill": 1, "pry": 1,
-	"track": 2, "swirl": 3, "bigslash": 4, "spin": 6,
+	"slash": 1, "zigzag": 2, "drill": 3, "pry": 4, "swirl": 5,
+	"track": 6, "bigslash": 6, "spin": 6, "tap": 6,
 }
 const NO_REPEAT_ACTION := true  # configurable  (true = never the same action twice in a row)
 
@@ -408,12 +421,13 @@ const RELIGHT_ZONE_MIN := 0.06  # configurable
 const RELIGHT_MISS_PENALTY := 1  # configurable  (a mistimed strike pushes the bar back up this many steps)
 
 # --- stages & lives
-## Every stage gives you LIVES lives. Break WALLS_PER_STAGE walls to clear it and go up a stage.
+## Every stage gives you LIVES lives. Break 3-5 walls (WALLS_PER_STAGE_MIN..MAX) to clear it and go up a stage.
 ## Losing a life (lighter not relit in time) restarts the stage from its first wall - your stage
 ## is a checkpoint. Lose all your lives before clearing it and you drop down a stage.
 const LIVES := 3  # configurable
 const MAX_LIVES := 5.0  # configurable  (hard cap: you can NEVER have more lives than this, Pack of Fluid included)
-const WALLS_PER_STAGE := 5  # configurable
+const WALLS_PER_STAGE_MIN := 3  # configurable  (each stage needs a random MIN..MAX walls, rolled when it starts)
+const WALLS_PER_STAGE_MAX := 5  # configurable
 const LOSS_RESTARTS_STAGE := true  # configurable  (false = losing a life keeps the walls you already broke this stage)
 ## Each stage up, things get harder - and pay more:
 const STAGE_FUEL_STEP := 0.07  # configurable  (light fades 7% faster each stage; tap rings close 7% faster too)
@@ -441,6 +455,7 @@ const TAP_GAP_MIN := 0.3  # configurable  (seconds between one ring closing and 
 const TAP_GAP_MAX := 0.65  # configurable
 const TAP_PERFECT_WINDOW := 0.1  # configurable  (tap within +/- this many seconds of the ring closing = PERFECT)
 const TAP_GOOD_WINDOW := 0.22  # configurable  (within this = Good; later and the circle is missed)
+const TAP_NEXT_LINE := true  # configurable  (a dotted line from the circle closing now to the one that closes next)
 const TAP_EARLY_IGNORE := 0.45  # configurable  (taps MORE than this early are ignored ("Wait for it!"); between this and GOOD = "Too early!", circle missed)
 
 # --- zigzag (careful tracing) and slash (one fast swipe)
@@ -515,10 +530,23 @@ const DRILL_RADIUS := 55.0  # configurable  (px; clicks further away don't count
 # --- pry
 const PRY_RADIUS := 55.0  # configurable  (px, where you must press)
 const PRY_FILL_TIME := 1.4  # configurable  (seconds for the gauge to fill up; at full it snaps = miss)
-const PRY_ZONE_MIN := 0.5  # configurable  (gold zone starts somewhere between MIN and MAX of the gauge)
-const PRY_ZONE_MAX := 0.75  # configurable
-const PRY_ZONE_SIZE := 0.16  # configurable  (size of the gold zone = PERFECT)
+const PRY_ZONE_MIN := 0.3  # configurable  (gold zone starts somewhere between MIN and MAX of the gauge)
+const PRY_ZONE_MAX := 0.78  # configurable
+const PRY_ZONE_SIZE_MIN := 0.12  # configurable  (size of the gold zone = PERFECT: random MIN..MAX)
+const PRY_ZONE_SIZE_MAX := 0.18  # configurable
 const PRY_GOOD_MARGIN := 0.1  # configurable  (just outside the gold zone still counts, but not perfect)
+## Every pry is a bit different, so it's never the same spot on the ring:
+const PRY_RANDOM_START := true  # configurable  (the gauge starts anywhere round the ring, not always at the top)
+const PRY_REVERSE_CHANCE := 0.5  # configurable  (chance it fills anticlockwise)
+const PRY_SPEED_MIN := 0.75  # configurable  (fill time x MIN..MAX: some pries are quick, some slow)
+const PRY_SPEED_MAX := 1.3  # configurable
+## How the gauge moves (bigger = more often, 0 = never). The style is shown under the wedge.
+const PRY_STYLES := {  # configurable
+	"steady": 40,    # the same speed all the way round
+	"speedup": 20,   # starts slow, gets faster
+	"slowdown": 20,  # starts fast, slows down
+	"stutter": 20,   # jumps forward in bursts, with little stops in between
+}
 
 # --- colours
 const SLICE_GUIDE_COLOR := Color("#ffd166")  # configurable  (lines, rings and gauges to follow)

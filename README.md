@@ -30,11 +30,13 @@ Short on coins? Click **< Mine** on the left to go to the mining wall and earn c
 (you need a **ticket** for one of the **caves**: Shop > Caves).
 
 **Screens**
-- **Top bar:** coins, your mine **tickets**, **Shop** (three tabs: **Rock Shop**, **Dwarven Shop** and **Caves**), **Backpack** (your ores & gems, sell them here), **Settings** (sound on/off, music volume, sound-effect volume, hint text, tips, reset), **?** (a short tour).
+- **Top bar:** coins, your mine **tickets**, **Shop** (four tabs: **Rock Shop**, **Dwarven Shop**, **Caves** and **Stock Prices**), the **Backpack** icon (your ores & gems, sell them here; the number next to it is how many you carry), the **Settings** gear (sound on/off, music volume, sound-effect volume, hint text, tips, reset), **?** (a short tour).
+- **Practice** (under the Mine arrow): pick any activity - every move, lighter flicking or relighting - and play it as long as you like. No lighter to look after, no ticket, no lives, and **no coins**. Back puts the mine back exactly as you left it.
 - **Tips as you play:** no long tutorial up front. The first time something happens (your first rock, first sale, running out of rocks, your first trip down the mine, each move style the first time it shows up, your light getting low, the lighter going out, your first lost life) a short tip pops up **once**, with a spotlight on what it's about; the mine pauses while it's up. **No more tips** (or Settings > Tips) turns them off. **?** plays a short 6-step tour (you can try the lighter and a move with no timer). Old saves that finished the old tutorial only get tips for the new moves.
 - **Main screen:** the rock in the middle, **Your Rocks** on the right, **< Mine** arrow on the left.
-- **Market & Guide** (top bar): today's price of every ore, gem and rock, its % of normal and how it moved at the
-  last restock. Click anything for its page: what it sells for, chances, the 3 best rocks to find it in (your
+- **Shop > Stock Prices:** today's price of every ore, gem and rock, its % of normal, how it moved at the
+  last restock and its **profit** (ores: coins above / below the normal price; rocks: what's inside on average minus
+  the price). The **Sort** button orders the list from least to most profit (click again: most to least). Click anything for its page: what it sells for, chances, the 3 best rocks to find it in (your
   upgrades included) and its **lore** (`ORE_LORE` in `config.gd`, write your own); for rocks, what's inside is worth
   on average at today's prices.
 - **Settings > Hint text:** turn off the helper texts (the rock hint, "Click one to put it on the anvil", the
@@ -44,14 +46,17 @@ Short on coins? Click **< Mine** on the left to go to the mining wall and earn c
   normal over time. A price can never go above **200%** or below **10%** of its normal price. The Shop, Market and
   Backpack colour prices **green when they're good for you** and **red when bad**: ores & gems are green above
   normal (you sell for more), rocks are green below normal (cheaper to buy). Paying to restock early gives new
-  rocks but doesn't move the market.
+  rocks but doesn't move the market, and **every paid restock costs x2.5 more** than the one before (25, 63, 156...)
+  until the shop restocks by itself again (`INSTANT_RESTOCK_GROWTH`). Shop > Stock Prices shows a countdown to the
+  next price change.
 - **Caves** (third tab of the Shop): six caves, each with its own wall, its own **tickets** and its own **stage**
   checkpoint (`CAVES` in `config.gd`). One ticket = one **trip** down that cave, which lasts until you run out of
   lives (then you're sent back up; going Back to your rocks doesn't end it). Claim a **free Old Mine ticket every
   10 minutes**, or buy tickets (Old Mine 100 coins ... Crystal Grotto 6500). Deeper caves pay more coins but your
-  light fades faster. **Clearing a stage** has a **1-5%** chance (by cave) of finding a rock - any rock type - for
-  Your Rocks. **< Mine** goes back down the cave you were in last (if you have its ticket), the only cave you have
-  tickets for, or opens the Caves tab. (The ? tour's visit to the wall is free.)
+  light fades faster. **Clearing a stage** has a **1-5%** chance (by cave) of finding a **pile of 5 rocks** - any
+  rock type - and **0-3 of them** make it into Your Rocks (`STAGE_ROCK_ROLLS`, `STAGE_ROCK_KEEP`, `STAGE_ROCK_MAX`).
+  **< Mine** opens **Select Mine**: every cave with your tickets, Buy ticket and Go down (and the free ticket).
+  On a trip your cave's row says **Continue**. (The ? tour's visit to the wall is free.)
 - **Dwarven Shop** (second tab of the Shop):
   - **Upgrades** (level 1 gives exactly the first number, the last level exactly the max, a smooth curve in
     between):
@@ -100,20 +105,22 @@ Short on coins? Click **< Mine** on the left to go to the mining wall and earn c
   **On phones there's no SPACE: tap the lighter.** On PC both work. The wall asks for one action at a time:
   | Action | What you do |
   |---|---|
-  | **TAP!** | circles pop up, each with a ring closing in on it; tap each circle the moment its ring touches it. Rings close at different speeds, so tap whichever closes **first** (too early / too late misses that circle) |
-  | **ZIGZAG!** | press the glowing dot and crack along the zigzag, passing **every corner** (cutting straight across doesn't work) |
-  | **SLASH!** | one big, fast swipe along a long line (you have under a second once you press) |
-  | **DRILL!** | spam-click the same spot until the counter hits 0 |
-  | **PRY!** | hold on the wedge; a gauge fills; let go while it's in the **gold zone** (too long and it snaps) |
-  | **TRACK!** (stage 2+) | a moving drill: keep clicking the circle as it drifts around the wall |
-  | **SWIRL!** (stage 3+) | trace the spiral from the glowing dot on the outside into the middle (no cutting across) |
-  | **SLASH IT ALL!** (stage 4+) | one huge, very fast swipe right across the wall, edge to edge |
+  | **TAP!** (stage 6+) | circles pop up, each with a ring closing in on it; tap each circle the moment its ring touches it. Rings close at different speeds, so tap whichever closes **first** (too early / too late misses that circle). A dotted line points from the circle closing now to the next one |
+  | **ZIGZAG!** (stage 2+) | press the glowing dot and crack along the zigzag, passing **every corner** (cutting straight across doesn't work) |
+  | **SLASH!** (from stage 1: the first move) | one big, fast swipe along a long line (you have under a second once you press) |
+  | **DRILL!** (stage 3+) | spam-click the same spot until the counter hits 0 |
+  | **PRY!** (stage 4+) | hold on the wedge; a gauge fills; let go while it's in the **gold zone** (too long and it snaps). Every pry is different: the gauge starts anywhere round the ring, goes either way (the arrow), at its own speed, and may **speed up**, **slow down** or **stutter** (written under the wedge; `PRY_STYLES`) |
+  | **TRACK!** (stage 6+) | a moving drill: keep clicking the circle as it drifts around the wall |
+  | **SWIRL!** (stage 5+) | trace the spiral from the glowing dot on the outside into the middle (no cutting across) |
+  | **SLASH IT ALL!** (stage 6+) | one huge, very fast swipe right across the wall, edge to edge |
   | **SPIN!** (stage 6+) | hold the button and spin your cursor round the circle, fast (like an osu! spinner); finish within the time shown |
 
   **Scaling difficulty:** the further you get, the more actions each wall takes (+1 every 2 stages, up to +6) and
-  the more move styles show up (the stage numbers above, `ACTION_UNLOCK`). Pricier caves have a **head start**
+  the more move styles show up: stages 1-5 add one each (Slash, Zigzag, Drill, Pry, Swirl), stage 6 brings in
+  the rest (Track, Slash It All, Spin and Tap). The stage numbers are `ACTION_UNLOCK`. Pricier caves have a **head start**
   (Shale Hollow +1 ... Crystal Grotto +5), so you meet every move sooner there - the Crystal Grotto has them all
-  from stage 1. In the mine you only see the cave: the top menu slides away, and nothing you have to hit ever
+  from stage 1. Finishing a move makes the WICK gauge flash REFILLED!, and while it burns it says "Finish the move
+  to refill it" (Settings > Hint text). In the mine you only see the cave: the top menu slides away, and nothing you have to hit ever
   comes within 16 px of the window's edges (`SAFE_BORDER`).
 
   Everything you do leaves pixel-art cracks in the wall, on the wall tile's own pixel grid.
@@ -130,7 +137,8 @@ Short on coins? Click **< Mine** on the left to go to the mining wall and earn c
 
   **Stages:** each stage gives you **3 lives** (shown as lighters, top right; a half-dark lighter = half a life).
   Not relighting in time costs a whole life and restarts the stage; flooding costs half a life and doesn't. Break
-  **5 walls** to clear the stage and go up. Your stage is a checkpoint, but lose all 3 lives before clearing it and you
+  **3-5 walls** (rolled for each stage, shown at the top: `WALLS_PER_STAGE_MIN` / `_MAX`) to clear the stage and go up. After every wall (and every stage cleared) you get a **break**: nothing
+  burns down until you click or press SPACE for the next wall (`REST_BETWEEN_WALLS`). Your stage is a checkpoint, but lose all 3 lives before clearing it and you
   **drop down a stage**. Every stage up pays **+25% coins**
   from the wall, but the light fades 7% faster (and tap rings close faster), and relighting takes one more strike every 2 stages.
   Stage, lives and progress are shown at the top of the wall and are saved.
@@ -186,12 +194,13 @@ New ores make every rock a bit richer (every rock can drop every ore), so give n
 
 ### Add a new rock
 1. Draw it in a free cell of `art_source/sheet_v3.png` and write `"rock_31"` in that cell of `GRID` in
-   `tools/slice_sheets.py`, then run it (or just save `assets/rocks/rock_31.png`, 32x32).
-2. Copy one entry in `ROCKS` in `config.gd`, change the id to `"rock_31"` and set its price / bonus.
+   `tools/slice_sheets.py`.
+2. Copy one entry in `ROCKS` in `config.gd`, change the id to `"rock_31"` and set its price / bonus, then run
+   `py -3.12 tools/slice_sheets.py` (it packs it into `assets/rocks/rocks.png`, in price order).
 3. `py -3.12 tools/tune_drops.py rock_31 --write` sets its quality to match the other rocks.
 
 ### Add a new ore / gem
-1. Save the art as `assets/ores/diamond.png` (or draw it in a free cell of `art_source/sheet_v3.png`, write `"diamond"` in that cell of `GRID` in `tools/slice_sheets.py` and run it).
+1. Draw it in a free cell of `art_source/sheet_v3.png`, write `"diamond"` in that cell of `GRID` in `tools/slice_sheets.py`, add it to `ORES` (step 2) and run the script: it packs it into `assets/ores/ores.png`.
 2. Add `"diamond": {...}` to `ORES` (every rock can drop it; give a rock `"bonus": {"diamond": 2.0}` to make it its speciality),
    plus a line of lore in `ORE_LORE`.
 
@@ -204,7 +213,10 @@ If an image is missing the game shows a **pink checkerboard** instead of crashin
 All art is scaled up with crisp, pixel-perfect filtering, so draw at the small size.
 Replace a file with **the same name** and Godot picks it up next time you press Play.
 
-### Rocks: `assets/rocks/` (cut from your sheet)
+### Rocks: `assets/rocks/rocks.png` (one texture, packed from your sheet)
+All 30 rocks are in **one texture**, cheapest first (left to right, 10 a row, 32x32 cells). `scripts/sprite_atlas.gd`
+says where each one is; both are made by `tools/slice_sheets.py`, so redraw `art_source/sheet_v3.png` and re-run it
+rather than editing them by hand. (The names below are the rocks' ids.)
 | File | Name in game | Price | Speciality |
 |---|---|---|---|
 | `rock_01.png` | Boulder | 40 | Silver |
@@ -242,7 +254,8 @@ Every rock can drop every ore and gem; the speciality just makes those more like
 
 Keep the rocks on the same canvas size (32x32). A small rock on a 32x32 canvas stays small on screen and a big one stays big; the empty border is cropped automatically.
 
-### Ores & gems: `assets/ores/` (cut from your sheet)
+### Ores & gems: `assets/ores/ores.png` (one texture, packed from your sheet)
+All ores (cheapest first), then all gems (cheapest first), in **one texture** - same tool, same atlas script.
 | Ores | Sells for | | Gems | Sells for |
 |---|---|---|---|---|
 | `lead.png` Lead | 4 | | `rhodonite.png` Rhodonite | 14 |
@@ -304,13 +317,14 @@ Other art:
 | fonts | **BoldPixels** by YukiPixels (`assets/fonts/BoldPixels.ttf`, CC BY-SA 4.0: free for commercial use, keep the credit; it's in Settings and `BoldPixels-LICENSE.txt`). Drawn with hard pixel edges (`FONT_PIXELATED`), a dark outline and a **drop shadow** (`TEXT_SHADOW_COLOR`, `TEXT_SHADOW_OFFSET`). It's only crisp at 16, 32, 48 px, so every text size is rounded to those (`FONT_PIXEL_SIZE`); buttons use 32 (`BUTTON_FONT_SIZE`). Another font: put it in `assets/fonts/` and set `FONT_FILE` / `TITLE_FONT_FILE` (set `FONT_PIXEL_SIZE = 0` for a non-pixel font) |
 
 ### Sprite sheets: `art_source/`
-Every rock, ore and gem is cut from `art_source/sheet_v3.png` (rocks rows 1-3, ores rows 4-5, gems rows 6-7).
-If you redraw the sheet, re-cut it with:
+Every rock, ore and gem is drawn on `art_source/sheet_v3.png` (rocks rows 1-3, ores rows 4-5, gems rows 6-7).
+The game uses two packed textures made from it (`assets/rocks/rocks.png`, `assets/ores/ores.png`, sorted by price,
+with `scripts/sprite_atlas.gd`). If you redraw the sheet or change prices, re-pack it with:
 ```
 py -3.12 tools/slice_sheets.py
 ```
 (32x32 cells; what each cell is, is written in `GRID` in the script).
-You can also skip the sheets and just edit the single PNGs.
+Don't edit the packed textures by hand: the next run overwrites them.
 
 ### Audio: `assets/audio/`
 The music is yours (see below); every other sound is a synthesized PLACEHOLDER made by
@@ -414,7 +428,7 @@ scripts/game_version.gd  the version (Indev 0.1) and the GitHub repo updates com
 scripts/updater.gd     auto-update: checks GitHub Releases, downloads + verifies + installs the new pack
 scripts/main.gd        builds the screens, top bar, shop / backpack / settings popups, drop animations
 scenes/main.tscn       main scene
-tools/slice_sheets.py  cuts art_source sheets into single PNGs
+tools/slice_sheets.py  packs the art_source sheet into rocks.png / ores.png (+ scripts/sprite_atlas.gd)
 tools/make_sounds.py   makes the placeholder sounds
 tools/tune_drops.py    balances rock quality from the ORES / ROCKS tables (see Balancing)
 tools/make_flame.py    makes the 8-frame flame flicker (sway, colour bands, breathing gas, tongues that break off)

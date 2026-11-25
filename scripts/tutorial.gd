@@ -12,7 +12,7 @@ const PANEL_W := 680.0
 const PANEL_H := 130.0
 ## (Old saves that finished the old tutorial count the basics as seen: Game.BASIC_TIPS.)
 ## The "?" tour: tip ids in order. Wall steps with a "practice" let you try it with no timer.
-const TOUR := ["anvil", "backpack", "shop", "mine", "lighter", "act_tap"]
+const TOUR := ["anvil", "backpack", "shop", "mine", "lighter", "act_slash", "wick"]
 
 var main                        # scripts/main.gd (set before adding the tutorial)
 var steps: Array[Dictionary] = []
@@ -111,18 +111,20 @@ func _tips() -> Dictionary:
 			"text": "Click the rock to crack it. After a few hits it breaks, and whatever's inside flies into your Backpack."},
 		"backpack": {"title": "Your finds", "screen": "main", "target": func(): return m.backpack_btn.get_global_rect().grow(6),
 			"text": "Ores and gems go in your Backpack. Open it to sell them for coins."},
-		"shop": {"title": "Buy more rocks", "screen": "main", "target": func(): return m.shop_btn.get_global_rect().merge(m.market_btn.get_global_rect()).grow(6),
-			"text": "The Shop sells rocks (and upgrades). Prices move every restock: GREEN means a good deal for you. The Market lists every price."},
+		"shop": {"title": "Buy more rocks", "screen": "main", "target": func(): return m.shop_btn.get_global_rect().grow(6),
+			"text": "The Shop sells rocks (and upgrades). Prices move every restock: GREEN means a good deal for you. Shop > Stock Prices lists every price."},
 		"mine": {"title": "Short on coins?", "screen": "main", "target": func(): return m.mine_btn.get_global_rect().grow(6),
 			"text": "Earn coins down the Mine. Every trip needs a ticket for that cave: there's a free %s ticket every %d minutes in Shop > Caves." % [Game.cave_name(Game.first_cave()), int(Config.FREE_TICKET_SECONDS / 60.0)]},
 		"lighter": {"title": "It's dark down here", "screen": "wall", "practice": "flick", "nodim": true,
 			"text": "Flick SPACE (or tap the lighter) to light it. The light fades: that's your timer. Flick when the FLICK bar is in the gold zone to top it up - but not while it blazes full, or you flood it (-1/2 life)."},
-		"danger": {"title": "Finish the action!", "screen": "wall", "target": wick_box,
-			"text": "Your WICK burns down while an action waits, and the light can't go above it. Only FINISHING an action refills it. Red edges and shaking = your light's about to die."},
+		"wick": {"title": "Your WICK", "screen": "wall", "target": wick_box,
+			"text": "This bar is your wick: the most light your lighter can have. It BURNS DOWN while a move waits for you, and flicking can't light the wall brighter than it. FINISH the move and it fills right back up. Too slow and it burns out: the lighter dies."},
+		"danger": {"title": "Finish the move!", "screen": "wall", "target": wick_box,
+			"text": "Your wick is nearly gone, so flicking won't help any more. Finish the move on the wall to refill it! Red edges and shaking = your light's about to die."},
 		"relight": {"title": "Lighter's out!", "screen": "wall", "nodim": true,
 			"text": "Strike SPACE while the marker is in the gold zone until the bar is empty - before the countdown runs out, or you lose a life."},
 		"lives": {"title": "Lives & stages", "screen": "wall", "target": stage_hud,
-			"text": "Break %d walls to clear a stage: it pays more but gets harder. Lose a life and the stage restarts; lose them all and you drop a stage and your trip ends." % Config.WALLS_PER_STAGE},
+			"text": "Break %d-%d walls to clear a stage (the top of the screen says how many): it pays more but gets harder. Lose a life and the stage restarts; lose them all and you drop a stage and your trip ends." % [Config.WALLS_PER_STAGE_MIN, Config.WALLS_PER_STAGE_MAX]},
 	}
 	var acts := {
 		"tap": "Tap each circle the moment its ring closes on it. Rings close at different speeds: tap whichever closes FIRST.",
@@ -155,7 +157,7 @@ func tip(id: String, now_only := false) -> void:
 
 func _can_show(id: String) -> bool:
 	if visible or main.shop_overlay.visible or main.backpack_overlay.visible or main.settings_overlay.visible \
-			or main.market_overlay.visible:
+			or main.practice_overlay.visible or main.mine_overlay.visible:
 		return false
 	var want: String = _tips().get(id, {}).get("screen", "main")
 	return (want == "wall") == main.on_wall
