@@ -95,6 +95,7 @@ var _top: Control
 var _last_kind := ""
 var _title := ""
 var _tile_img: Image
+var _tile_file := ""            # the wall tile in use (each cave has its own, Config.CAVES)
 # zigzag / slash
 var _path := PackedVector2Array()
 var _cum := PackedFloat32Array()
@@ -137,8 +138,7 @@ func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	clip_contents = true
 	mouse_default_cursor_shape = Control.CURSOR_CROSS
-	tile_tex = load(Config.WALL_TILE_FILE) if ResourceLoader.exists(Config.WALL_TILE_FILE) else Game.rock_texture("missing")
-	_tile_img = tile_tex.get_image()
+	_load_tile()
 	for i in 32:
 		var f := Config.LIGHTER_DIR + "lighter_%d.png" % i
 		if not ResourceLoader.exists(f):
@@ -184,6 +184,26 @@ func _touched() -> bool:
 	return false
 
 
+## Loads the wall tile of the cave you're in. Returns true if it changed.
+func _load_tile() -> bool:
+	var f: String = Game.cave_info().get("tile", Config.WALL_TILE_FILE)
+	if not ResourceLoader.exists(f):
+		f = Config.WALL_TILE_FILE
+	if f == _tile_file and tile_tex != null:
+		return false
+	_tile_file = f
+	tile_tex = load(f) if ResourceLoader.exists(f) else Game.rock_texture("missing")
+	_tile_img = tile_tex.get_image()
+	return true
+
+
+## A trip started in another cave: swap in its wall straight away.
+func change_cave() -> void:
+	if _load_tile() and not _falling and size.x >= 400 and practice == "":
+		new_wall()
+	queue_redraw()
+
+
 func _tile_px() -> float:
 	return tile_tex.get_width() * Config.WALL_TILE_SCALE
 
@@ -219,6 +239,7 @@ func _free_point(r: Rect2, pad: float) -> Vector2:
 
 # ------------------------------------------------------------------ wall + actions
 func new_wall() -> void:
+	_load_tile()
 	_falling = false
 	_pieces.clear()
 	_marks.clear()
@@ -956,7 +977,8 @@ func flick_tempo() -> Vector2:
 func flick_gain() -> float:
 	var fade_per_sec := 1.0 / maxf(Config.LIGHT_DURATION * Game.stage_fuel_factor(), 0.1)
 	var by_tempo := fade_per_sec * Config.FLICK_GAIN * flick_tempo().x * randf_range(0.85, 1.15)
-	return maxf(by_tempo, randf_range(Config.RECHARGE_MIN, Config.RECHARGE_MAX) / 100.0)
+	var gain := maxf(by_tempo, randf_range(Config.RECHARGE_MIN, Config.RECHARGE_MAX) / 100.0)
+	return gain * (1.0 + Game.upgrade_value("heat_of_the_forge") / 100.0)  # Heat of the Forge: more light per flick
 
 
 ## The gold zone on the FLICK bar (from, to), at the top end of the bar.
@@ -1380,6 +1402,28 @@ func wick_gauge_rect() -> Rect2:
 	return Rect2((size - sz - Config.WICK_GAUGE_MARGIN).round(), sz)
 
 
+## About to lose (danger() > 0): a red border creeps in from the screen edges and throbs like a
+## heartbeat, faster and stronger the closer you are. Drawn in hard steps, pixel-art style.
+func _draw_stress() -> void:
+	var d := danger()
+	if d <= 0.0 or Config.STRESS_ALPHA <= 0.0:
+		return
+	var rate := lerpf(1.2, 3.0, d)  # heartbeats per second
+	var beat := pow(maxf(sin(_t * TAU * rate), 0.0), 3.0)  # a sharp thump, then quiet
+	var bands := maxi(Config.STRESS_BANDS, 1)
+	var bw := Config.STRESS_WIDTH * lerpf(0.6, 1.0, d) * (1.0 + 0.25 * beat) / bands
+	for i in bands:
+		var a := Config.STRESS_ALPHA * d * (0.55 + 0.45 * beat) * (1.0 - float(i) / bands)
+		var c := Config.STRESS_COLOR
+		c.a = a
+		var inset := float(i) * bw
+		var r := Rect2(Vector2(inset, inset), size - Vector2(inset, inset) * 2.0)
+		_ci.draw_rect(Rect2(r.position, Vector2(r.size.x, bw)), c)                         # top
+		_ci.draw_rect(Rect2(r.position + Vector2(0, r.size.y - bw), Vector2(r.size.x, bw)), c)  # bottom
+		_ci.draw_rect(Rect2(r.position + Vector2(0, bw), Vector2(bw, r.size.y - bw * 2.0)), c)  # left
+		_ci.draw_rect(Rect2(r.position + Vector2(r.size.x - bw, bw), Vector2(bw, r.size.y - bw * 2.0)), c)  # right
+
+
 ## The wick, as pixel art: a braided cotton wick in a slot that burns down from the top, with a
 ## glowing ember on its tip. The slot's frame flashes red when it's nearly gone.
 func _draw_wick_gauge() -> void:
@@ -1414,6 +1458,7 @@ func _draw_wick_gauge() -> void:
 
 func _draw_top() -> void:
 	_ci = _top
+	_draw_stress()
 	_draw_chips(true)
 	_draw_lighter()
 	_draw_flick_bar()
@@ -1646,7 +1691,7 @@ func _draw_hud() -> void:
 	if practice != "":
 		_text("PRACTICE - your lighter won't run out", Vector2(cx, 98), 16, Config.MUTED_TEXT, font)
 	else:
-		var line := "Stage %d   -   Wall %d / %d" % [Game.stage, mini(Game.stage_walls + 1, Config.WALLS_PER_STAGE), Config.WALLS_PER_STAGE]
+		var line := "%s   -   Stage %d   -   Wall %d / %d" % [Game.cave_name(), Game.stage, mini(Game.stage_walls + 1, Config.WALLS_PER_STAGE), Config.WALLS_PER_STAGE]
 		if Game.stage > 1:
 			line += "   -   coins x%s" % _num(Game.stage_coin_mult())
 		_text(line, Vector2(cx, 98), 17, Config.TEXT_COLOR, font)
@@ -1679,10 +1724,11 @@ func _draw_lives() -> void:
 		return
 	var tex := _lighter_frames[0]
 	var region := Rect2(40, 29, 41, 51)  # the closed lighter on the frame canvas
-	var x0 := size.x - 24.0 - Config.LIVES * 50.0
+	var slots := ceili(Game.max_lives() - 0.001)  # Pack of Fluid adds lighters (half ones too)
+	var x0 := size.x - 24.0 - slots * 50.0
 	_text("LIVES", Vector2(x0 - 40, 50), 18, Config.TEXT_COLOR, font)
 	var dim := Color(0.25, 0.22, 0.22, 0.8)
-	for i in Config.LIVES:
+	for i in slots:
 		var r := Rect2(Vector2(x0 + i * 50.0, 14), region.size)
 		var left := Game.lives - i  # >= 1 full, 0.5 half, <= 0 lost
 		if left >= 1.0:

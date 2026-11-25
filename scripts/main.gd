@@ -15,11 +15,13 @@ var shop_title: Label
 var shop_tab := "rocks"
 var tab_rocks: Button
 var tab_dwarf: Button
+var tab_caves: Button
 var rock_page: VBoxContainer
 var dwarf_page: VBoxContainer
+var cave_page: VBoxContainer
+var cave_list: VBoxContainer
 var ticket_info: Label
 var claim_btn: Button
-var buy_ticket_btn: Button
 var upgrade_list: VBoxContainer
 var slot_style: StyleBox            # dark inset box for shop cards / upgrade rows
 var _dev := false
@@ -73,6 +75,8 @@ var toast_label: Label
 var toast_tween: Tween
 var fx_layer: Control
 var flash_rect: ColorRect          # the full-screen flash when your flame reaches full blaze
+var room_bg: TextureRect           # the room behind the rock (assets/ui/background.png); slides with the rock screen
+var wall_side: ColorRect           # the strip on the right of the mine screen that holds the Back button
 var _shake := 0.0
 
 
@@ -99,6 +103,8 @@ func _ready() -> void:
 	Game.lucky_sale.connect(_on_lucky_sale)
 	Game.market_moved.connect(_refresh)
 	Game.trip_over.connect(_on_trip_over)
+	Game.found_rock.connect(_on_found_rock)
+	Game.found_ticket.connect(_on_found_ticket)
 	_refresh()
 	_rebuild_shop()
 	if Game.current_rock != "":
@@ -141,6 +147,8 @@ func _process(delta: float) -> void:
 	if shop_overlay.visible:
 		shop_timer.text = "Restocks in %s" % _fmt_time(Game.restock_left()) + ("  -  the market moves every restock" if Game.show_hints else "")
 		_update_tickets()
+	if on_wall and wall_view.active:  # about to lose: the whole screen trembles too
+		_shake = maxf(_shake, wall_view.danger() * Config.DANGER_SCREEN_SHAKE)
 	if _shake > 0.0:
 		_shake = move_toward(_shake, 0.0, delta * 40.0)
 		position = Vector2(randf_range(-1, 1), randf_range(-1, 1)) * _shake
@@ -154,28 +162,34 @@ func _build() -> void:
 	bg.color = Config.BG_COLOR
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(bg)
-	if ResourceLoader.exists(UI_DIR + "background.png"):  # optional art
-		var bgt := TextureRect.new()
-		bgt.texture = load(UI_DIR + "background.png")
-		bgt.set_anchors_preset(Control.PRESET_FULL_RECT)
-		bgt.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		bgt.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
-		add_child(bgt)
+	if ResourceLoader.exists(UI_DIR + "background.png"):  # optional art: the room behind the rock
+		room_bg = TextureRect.new()
+		room_bg.texture = load(UI_DIR + "background.png")
+		room_bg.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		room_bg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+		room_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 	var col := VBoxContainer.new()
 	col.set_anchors_preset(Control.PRESET_FULL_RECT)
 	col.add_theme_constant_override("separation", 0)
 	add_child(col)
 
-	# --- top bar (stays put on both screens)
+	# --- top bar: its own menu strip (stays put on both screens; nothing of the screens goes under it)
+	var menu_bar := PanelContainer.new()
+	var mb := StyleBoxFlat.new()
+	mb.bg_color = Config.MENU_BAR_COLOR
+	mb.border_color = Config.MENU_BAR_EDGE
+	mb.border_width_bottom = 4
+	menu_bar.add_theme_stylebox_override("panel", mb)
+	col.add_child(menu_bar)
 	var top_margin := MarginContainer.new()
 	for side in ["left", "right", "top", "bottom"]:
 		top_margin.add_theme_constant_override("margin_" + side, 12)
-	col.add_child(top_margin)
+	menu_bar.add_child(top_margin)
 	var top := HBoxContainer.new()
 	top.add_theme_constant_override("separation", 10)
 	top_margin.add_child(top)
-	top.add_child(_title("RICH FROM ROCKS", 32, Config.ACCENT))
+	top.add_child(_title(GameVersion.TITLE.to_upper(), 32, Config.ACCENT))
 	var spacer := Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	top.add_child(spacer)
@@ -184,7 +198,7 @@ func _build() -> void:
 	coin_label = _label("", 26, Config.ACCENT)
 	top.add_child(coin_label)
 	var tk := _icon(Game.ui_texture("ticket.png"), 32)
-	tk.tooltip_text = "Mine tickets (Dwarven Shop)"
+	tk.tooltip_text = "Mine tickets, all caves (Shop > Caves)"
 	top.add_child(tk)
 	ticket_icon = tk
 	ticket_label = _label("", 26, Config.TEXT_COLOR)
@@ -211,7 +225,10 @@ func _build() -> void:
 	screens_area.clip_contents = true
 	col.add_child(screens_area)
 	slider = Control.new()
+	slider.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	screens_area.add_child(slider)
+	if room_bg:
+		slider.add_child(room_bg)  # sized to the rock screen in _layout_screens
 
 	# main screen: [arrow] [rock] [Your Rocks]
 	main_screen = MarginContainer.new()
@@ -228,9 +245,8 @@ func _build() -> void:
 	center.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	center.alignment = BoxContainer.ALIGNMENT_CENTER
 	body.add_child(center)
-	rock_title = _title("", 30, Config.TEXT_COLOR)
+	rock_title = _title("", 30, Config.TEXT_COLOR)  # under the rock, on the table (added after the holder)
 	rock_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	center.add_child(rock_title)
 	var holder := CenterContainer.new()
 	holder.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	center.add_child(holder)
@@ -250,6 +266,7 @@ func _build() -> void:
 	rock_view = RockView.new()
 	rock_view.set_anchors_preset(Control.PRESET_FULL_RECT)
 	stack.add_child(rock_view)
+	center.add_child(rock_title)
 	hint_label = _hint(_label("", 18, Config.MUTED_TEXT)) as Label
 	hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	center.add_child(hint_label)
@@ -263,11 +280,15 @@ func _build() -> void:
 	rv.add_child(_hint(_label("Click one to put it on the anvil", 14, Config.MUTED_TEXT)))
 	bag_list = _scroll_list(rv)
 
-	# wall screen: the wall fills it, Back button on the right
+	# wall screen: the wall, and a strip of its own on the right for the Back button (the wall stops
+	# where the strip starts, so the button never covers a spot you need to tap)
 	wall_screen = Control.new()
+	wall_screen.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	slider.add_child(wall_screen)
+	wall_side = ColorRect.new()
+	wall_side.color = Config.MENU_BAR_COLOR
+	wall_screen.add_child(wall_side)
 	wall_view = WallView.new()
-	wall_view.set_anchors_preset(Control.PRESET_FULL_RECT)
 	wall_view.font = font
 	wall_view.title_font = title_font
 	wall_screen.add_child(wall_view)
@@ -343,7 +364,8 @@ func _make_overlay(title: String, close: Callable) -> Array:
 	return [ov, v, tl]
 
 
-## The shop has two tabs: rocks (limited stock, market prices) and the Dwarven Shop (tickets + upgrades).
+## The shop has three tabs: rocks (limited stock, market prices), the Dwarven Shop (upgrades) and Caves
+## (a ticket for each cave).
 func _build_shop() -> void:
 	var o := _make_overlay("Rock Shop", _close_overlays)
 	shop_overlay = o[0]
@@ -355,7 +377,8 @@ func _build_shop() -> void:
 	var grp := ButtonGroup.new()
 	tab_rocks = _button("Rock Shop", _show_shop_tab.bind("rocks"))
 	tab_dwarf = _button("Dwarven Shop", _show_shop_tab.bind("dwarf"))
-	for b in [tab_rocks, tab_dwarf]:
+	tab_caves = _button("Caves", _show_shop_tab.bind("caves"))
+	for b in [tab_rocks, tab_dwarf, tab_caves]:
 		b.toggle_mode = true
 		b.button_group = grp
 		b.custom_minimum_size = Vector2(190, 46)
@@ -383,9 +406,24 @@ func _build_shop() -> void:
 	dwarf_page.add_theme_constant_override("separation", 10)
 	dwarf_page.custom_minimum_size.x = 820
 	v.add_child(dwarf_page)
+	dwarf_page.add_child(_title("Upgrades", 24, Config.ACCENT))
+	var sc := ScrollContainer.new()
+	sc.custom_minimum_size = Vector2(820, 420)
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	dwarf_page.add_child(sc)
+	upgrade_list = VBoxContainer.new()
+	upgrade_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	upgrade_list.add_theme_constant_override("separation", 8)
+	sc.add_child(upgrade_list)
+
+	# Caves: the free ticket, then one row per cave (its tickets, buy one, go down)
+	cave_page = VBoxContainer.new()
+	cave_page.add_theme_constant_override("separation", 10)
+	cave_page.custom_minimum_size.x = 820
+	v.add_child(cave_page)
 	var tcard := PanelContainer.new()
 	tcard.add_theme_stylebox_override("panel", slot_style)
-	dwarf_page.add_child(tcard)
+	cave_page.add_child(tcard)
 	var trow := HBoxContainer.new()
 	trow.add_theme_constant_override("separation", 12)
 	tcard.add_child(trow)
@@ -396,23 +434,21 @@ func _build_shop() -> void:
 	trow.add_child(tinfo)
 	ticket_info = _label("", 20, Config.TEXT_COLOR)
 	tinfo.add_child(ticket_info)
-	var tsub := _hint(_label("One ticket = one trip down the mine, until you run out of lives.", 14, Config.MUTED_TEXT))
+	var tsub := _hint(_label("One ticket = one trip down that cave, until you run out of lives. Each cave keeps its own stage.", 14, Config.MUTED_TEXT)) as Label
+	tsub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	tsub.custom_minimum_size.x = 380
 	tinfo.add_child(tsub)
 	claim_btn = _button("", _claim_ticket)
-	claim_btn.custom_minimum_size = Vector2(190, 48)
+	claim_btn.custom_minimum_size = Vector2(230, 48)
 	trow.add_child(claim_btn)
-	buy_ticket_btn = _button("", _buy_ticket)
-	buy_ticket_btn.custom_minimum_size = Vector2(170, 48)
-	trow.add_child(buy_ticket_btn)
-	dwarf_page.add_child(_title("Upgrades", 24, Config.ACCENT))
-	var sc := ScrollContainer.new()
-	sc.custom_minimum_size = Vector2(820, 330)
-	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	dwarf_page.add_child(sc)
-	upgrade_list = VBoxContainer.new()
-	upgrade_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	upgrade_list.add_theme_constant_override("separation", 8)
-	sc.add_child(upgrade_list)
+	var csc := ScrollContainer.new()
+	csc.custom_minimum_size = Vector2(820, 360)
+	csc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	cave_page.add_child(csc)
+	cave_list = VBoxContainer.new()
+	cave_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cave_list.add_theme_constant_override("separation", 8)
+	csc.add_child(cave_list)
 	_show_shop_tab("rocks", false)
 
 
@@ -422,22 +458,68 @@ func _show_shop_tab(tab: String, sound := true) -> void:
 	shop_tab = tab
 	rock_page.visible = tab == "rocks"
 	dwarf_page.visible = tab == "dwarf"
-	shop_title.text = "Rock Shop" if tab == "rocks" else "Dwarven Shop"
+	cave_page.visible = tab == "caves"
+	shop_title.text = {"rocks": "Rock Shop", "dwarf": "Dwarven Shop", "caves": "Caves"}.get(tab, "Shop")
 	tab_rocks.set_pressed_no_signal(tab == "rocks")
 	tab_dwarf.set_pressed_no_signal(tab == "dwarf")
+	tab_caves.set_pressed_no_signal(tab == "caves")
 	_update_tickets()
 
 
 func _update_tickets() -> void:
-	ticket_label.text = "x%d" % Game.tickets
+	ticket_label.text = "x%d" % Game.ticket_count()
 	if ticket_info == null:
 		return
-	ticket_info.text = "Mine tickets: %d" % Game.tickets + ("   (you're on a trip)" if Game.trip_active else "")
+	ticket_info.text = "Mine tickets: %d" % Game.ticket_count() + ("   (on a trip in %s)" % Game.cave_name() if Game.trip_active else "")
 	var left := Game.free_ticket_left()
-	claim_btn.text = "Claim free ticket!" if left <= 0.0 else "Free ticket in %s" % _fmt_time(left)
+	claim_btn.text = "Free %s ticket!" % Game.cave_name(Game.first_cave()) if left <= 0.0 else "Free ticket in %s" % _fmt_time(left)
 	claim_btn.disabled = left > 0.0
-	buy_ticket_btn.text = "Buy ticket  %d" % Config.TICKET_PRICE
-	buy_ticket_btn.disabled = Game.coins < Config.TICKET_PRICE
+
+
+## The Caves tab: one row per cave with its wall, perks, your tickets, Buy and Go down.
+func _rebuild_caves() -> void:
+	if cave_list == null:
+		return
+	for c in cave_list.get_children():
+		c.queue_free()
+	for id in Config.CAVES:
+		var cv: Dictionary = Config.CAVES[id]
+		var card := PanelContainer.new()
+		card.add_theme_stylebox_override("panel", slot_style)
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 12)
+		card.add_child(row)
+		var tile_file: String = cv.get("tile", Config.WALL_TILE_FILE)
+		var tile_tex: Texture2D = load(tile_file) if ResourceLoader.exists(tile_file) else Game.rock_texture("missing")
+		row.add_child(_icon(tile_tex, 64))
+		var info := VBoxContainer.new()
+		info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		info.add_theme_constant_override("separation", 0)
+		row.add_child(info)
+		var head := HBoxContainer.new()
+		info.add_child(head)
+		head.add_child(_label(cv.get("name", id), 20, Config.ACCENT if Game.trip_active and id == Game.cave else Config.TEXT_COLOR))
+		head.add_child(_label("   Tickets: %d" % Game.ticket_count(id), 15, Config.TEXT_COLOR if Game.ticket_count(id) > 0 else Config.MUTED_TEXT))
+		var fuel := float(cv.get("fuel", 1.0))
+		var perks := "Coins x%s" % String.num(float(cv.get("coins", 1.0)), 2)
+		if fuel < 0.999:
+			perks += "   -   light fades %d%% faster" % roundi((1.0 / fuel - 1.0) * 100.0)
+		perks += "   -   %s%% rock per stage" % String.num(float(cv.get("stone_chance", 0.0)), 1)
+		info.add_child(_label(perks, 15, Config.TEXT_COLOR))
+		info.add_child(_label("Stage %d   (best %d)" % [Game.cave_stage(id), Game.cave_best(id)], 14, Config.MUTED_TEXT))
+		var price := Game.ticket_price(id)
+		var buy := _button("Buy ticket  %d" % price, _buy_ticket.bind(id))
+		buy.custom_minimum_size = Vector2(190, 48)
+		buy.disabled = Game.coins < price
+		row.add_child(buy)
+		var here: bool = Game.trip_active and id == Game.cave
+		var go := _button("Continue" if here else "Go down", _enter_cave.bind(id))
+		go.custom_minimum_size = Vector2(140, 48)
+		go.disabled = not here and (Game.trip_active or Game.ticket_count(id) <= 0)
+		if Game.trip_active and not here:
+			go.tooltip_text = "Finish your trip in %s first (it ends when you run out of lives)" % Game.cave_name()
+		row.add_child(go)
+		cave_list.add_child(card)
 
 
 func _rebuild_upgrades() -> void:
@@ -480,15 +562,27 @@ func _upgrade_text(id: String, v: float) -> String:
 	var n := String.num(v, 2 if v < 10.0 else 1)
 	if id == "fools_gold":
 		return "%s%% chance a sale pays +%s%%" % [n, String.num(Config.FOOLS_GOLD_BONUS, 1)]
+	if id == "pack_of_fluid":  # lives every stage, in half lives, never above MAX_LIVES
+		var u: Dictionary = Config.UPGRADES[id]
+		var lives := minf(Config.LIVES + floorf(v * 2.0 + 0.001) / 2.0, Config.MAX_LIVES)
+		var text := "%s / %s lives every stage" % [String.num(lives, 1), String.num(Config.MAX_LIVES, 1)]
+		if lives >= Config.MAX_LIVES:
+			return text + "  (MAX)"
+		# levels per half life (20 levels for +2 lives = 5), and the level that gives the next one
+		var per_half := maxi(1, roundi(float(u.get("levels", 1)) / (float(u.get("max", 1.0)) * 2.0)))
+		var lv := roundi(v / maxf(float(u.get("max", 1.0)) / float(u.get("levels", 1)), 0.0001))
+		return text + "  (next half life at Lv %d)" % ((lv / per_half + 1) * per_half)
+	if id in ["silktouch", "ticket_hungry"]:
+		return "%s%% %s" % [n, Config.UPGRADES[id].get("text", "")]
 	return "+%s%% %s" % [n, Config.UPGRADES[id].get("text", "")]
 
 
-## "(140%)" in green / "(60%)" in red next to a price, or nothing at the normal price.
+## "(140%)" next to a price (nothing at the normal price): green when it's good for you, red when bad.
+## Ores sell: higher is good. Rocks you buy: cheaper is good.
 func _market_tag(id: String, fs: int) -> Label:
 	var m := Game.market_mult(id)
 	var pct := roundi(m * 100.0)
-	var l := _label("" if pct == 100 else "(%d%%)" % pct, fs,
-			Config.MARKET_UP_COLOR if pct > 100 else Config.MARKET_DOWN_COLOR)
+	var l := _label("" if pct == 100 else "(%d%%)" % pct, fs, _pct_color(pct - 100, Config.ROCKS.has(id)))
 	l.tooltip_text = "Market price: %d%% of normal" % pct
 	l.mouse_filter = Control.MOUSE_FILTER_PASS
 	return l
@@ -610,12 +704,12 @@ func _market_row(id: String) -> Control:
 	pl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	h.add_child(pl)
 	var pct := roundi(Game.market_mult(id) * 100.0)
-	var ml := _label("%d%%" % pct, 16, _pct_color(pct - 100))
+	var ml := _label("%d%%" % pct, 16, _pct_color(pct - 100, not ore))
 	ml.custom_minimum_size.x = 64
 	ml.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	h.add_child(ml)
 	var tr := Game.market_trend(id)
-	var tl := _label(("+%d%%" % tr) if tr > 0 else ("%d%%" % tr) if tr < 0 else "-", 16, _pct_color(tr))
+	var tl := _label(("+%d%%" % tr) if tr > 0 else ("%d%%" % tr) if tr < 0 else "-", 16, _pct_color(tr, not ore))
 	tl.custom_minimum_size.x = 64
 	tl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	tl.tooltip_text = "Change at the last restock"
@@ -625,8 +719,11 @@ func _market_row(id: String) -> Control:
 	return b
 
 
-func _pct_color(delta: int) -> Color:
-	return Config.MARKET_UP_COLOR if delta > 0 else Config.MARKET_DOWN_COLOR if delta < 0 else Config.MUTED_TEXT
+## Colour for a price change: green = good for you, red = bad. rock = true: you BUY it, so cheaper is good.
+func _pct_color(delta: int, rock := false) -> Color:
+	if delta == 0:
+		return Config.MUTED_TEXT
+	return Config.MARKET_GOOD_COLOR if (delta > 0) != rock else Config.MARKET_BAD_COLOR
 
 
 ## The page on the right.
@@ -665,7 +762,7 @@ func _show_market_detail(id: String) -> void:
 		hv.add_child(_label("Rock", 16, Config.MUTED_TEXT))
 		_detail_line("Shop price: %d coins" % Game.rock_price(id), Config.ACCENT)
 		_detail_line("Market: %d%% of the normal %d  (%s at the last restock)" % [pct, int(r.price),
-				("+%d%%" % tr) if tr > 0 else ("%d%%" % tr) if tr < 0 else "no change"], _pct_color(pct - 100))
+				("+%d%%" % tr) if tr > 0 else ("%d%%" % tr) if tr < 0 else "no change"], _pct_color(pct - 100, true))
 		_detail_line("Hits to break: %d - %d" % [int(r.get("hits_min", Config.HITS_MIN)), int(r.get("hits_max", Config.HITS_MAX))], Config.TEXT_COLOR)
 		_detail_line("Drop rolls: %d" % int(r.get("rolls", 1)), Config.TEXT_COLOR)
 		var bonus: Dictionary = r.get("bonus", {})
@@ -745,7 +842,7 @@ func _build_settings() -> void:
 	reset_btn.custom_minimum_size.y = 40
 	v.add_child(reset_btn)
 	v.add_child(HSeparator.new())
-	var credits := _label("Rich From Rocks  %s  -  by %s
+	var credits := _label(GameVersion.TITLE + "  %s  -  by %s
 %s
 Font: BoldPixels by YukiPixels (CC BY-SA 4.0)
 Music: Gambler Symphony, MeltdownTheme, Shop Theme (Thameuszin)" % [
@@ -827,6 +924,7 @@ func _refresh() -> void:
 	restock_btn.disabled = Game.coins < Config.INSTANT_RESTOCK_COST
 	_rebuild_shop()
 	_rebuild_upgrades()
+	_rebuild_caves()
 	_update_tickets()
 	_rebuild_market()
 
@@ -904,6 +1002,8 @@ func _on_broken(center_global: Vector2) -> void:
 	var got := Game.break_current()
 	_shake = Config.SCREEN_SHAKE_ON_BREAK
 	var origin := center_global - fx_layer.global_position
+	if Game.last_break_saved:  # Silktouch: it goes back in your bag (and on the anvil next)
+		_float_text(origin + Vector2(0, 60), "SILKTOUCH!  The rock survived", Config.ACCENT, 0.35)
 	if got.is_empty():
 		_float_text(origin, "Nothing inside...", Config.MUTED_TEXT, 0.15)
 		get_tree().create_timer(0.15).timeout.connect(Sfx.play.bind("drop_none"))
@@ -988,10 +1088,10 @@ func _claim_ticket() -> void:
 		Sfx.play("error")
 
 
-func _buy_ticket() -> void:
-	if Game.buy_ticket():
+func _buy_ticket(id: String) -> void:
+	if Game.buy_ticket(id):
 		Sfx.play("buy")
-		show_toast("Ticket bought")
+		show_toast("%s ticket bought" % Game.cave_name(id))
 	else:
 		Sfx.play("error")
 		show_toast("Not enough coins!")
@@ -1003,6 +1103,39 @@ func _buy_upgrade(id: String) -> void:
 		show_toast("%s  Lv %d" % [Config.UPGRADES[id].get("name", id), Game.upgrade_level(id)])
 	else:
 		Sfx.play("error")
+
+
+## Go down a cave from the Caves tab (uses one of its tickets, unless that's the trip you're on).
+func _enter_cave(id: String) -> void:
+	if Game.trip_active and id != Game.cave:
+		Sfx.play("error")
+		show_toast("Finish your trip in %s first" % Game.cave_name())
+		return
+	var was_on: bool = Game.trip_active
+	if not Game.start_trip(id):
+		Sfx.play("error")
+		show_toast("You need a %s ticket!" % Game.cave_name(id))
+		return
+	close_overlays_silent()
+	wall_view.change_cave()
+	if not was_on:
+		show_toast("Ticket used - welcome to %s!" % Game.cave_name())
+	_slide_to(true)
+
+
+## Clearing a stage found a rock (the cave's stone_chance).
+func _on_found_rock(rock_id: String) -> void:
+	Sfx.play("drop_rare")
+	_float_text(Vector2(size.x * 0.5, size.y * 0.3), "Found a %s!  (in Your Rocks)" % Game.rock_name(rock_id), Config.ACCENT, 0.6)
+	if rock_view.rock_id == "" and not on_wall:
+		_auto_place(rock_id)
+
+
+## Ticket Hungry found a ticket when you cleared a stage.
+func _on_found_ticket(cave_id: String) -> void:
+	Sfx.play("buy")
+	_float_text(Vector2(size.x * 0.5, size.y * 0.3 + 50), "TICKET HUNGRY!  +1 %s ticket" % Game.cave_name(cave_id), Config.ACCENT, 1.0)
+	_bump(ticket_label)
 
 
 ## Fool's Gold paid extra on a sale.
@@ -1018,7 +1151,7 @@ func _on_trip_over() -> void:
 	await get_tree().create_timer(1.8).timeout
 	if on_wall and not tutorial.visible and not Game.trip_active:
 		_go_main()
-		show_toast("Out of lives - your trip is over. Get a new ticket in the Dwarven Shop.")
+		show_toast("Out of lives - your trip is over. Get a new ticket in Shop > Caves.")
 
 
 func _sell(id: String, amount: int) -> void:
@@ -1075,15 +1208,26 @@ func _open_tutorial() -> void:
 
 
 # ================================================================== screens
-## The Mine button: needs a ticket unless you're already on a trip.
+## The Mine button: needs a ticket unless you're already on a trip. With tickets for more than one cave
+## you pick in the Caves tab (the cave you were in last goes first if you still have its tickets).
 func _go_wall() -> void:
 	if not Game.trip_active:
+		var kinds := 0
+		for id in Config.CAVES:
+			if Game.ticket_count(id) > 0:
+				kinds += 1
+		if kinds > 1 and Game.ticket_count(Game.cave) <= 0:
+			Sfx.play("click")
+			_open_shop("caves")
+			show_toast("Pick a cave to go down")
+			return
 		if not Game.start_trip():
 			Sfx.play("error")
-			_open_shop("dwarf")
+			_open_shop("caves")
 			show_toast("You need a ticket to go down the mine!")
 			return
-		show_toast("Ticket used - good luck down there!")
+		wall_view.change_cave()
+		show_toast("Ticket used - welcome to %s!" % Game.cave_name())
 	_slide_to(true)
 
 
@@ -1118,8 +1262,18 @@ func _layout_screens() -> void:
 		wall_screen.size = s
 		wall_screen.position = Vector2(-s.x, 0)
 		slider.position.x = s.x if on_wall else 0.0
+		if room_bg:
+			room_bg.position = Vector2.ZERO
+			room_bg.size = s
 	back_btn.size = back_btn.get_combined_minimum_size()
-	back_btn.position = Vector2(s.x - back_btn.size.x - 12, (s.y - back_btn.size.y) * 0.5)
+	var side_w := back_btn.size.x + 24.0
+	var wall_rect := Rect2(0, 0, maxf(s.x - side_w, 0.0), s.y)
+	if wall_view.position != wall_rect.position or wall_view.size != wall_rect.size:
+		wall_view.position = wall_rect.position
+		wall_view.size = wall_rect.size
+	wall_side.position = Vector2(s.x - side_w, 0)
+	wall_side.size = Vector2(side_w, s.y)
+	back_btn.position = Vector2(s.x - side_w + 12.0, (s.y - back_btn.size.y) * 0.5)
 
 
 func _on_action_done(perfect: bool, at: Vector2, combo: int, mult: float) -> void:
@@ -1536,9 +1690,9 @@ func _dev_shots(dir: String) -> void:
 			n_items += 1
 	print("market over 300 restocks: min %.2f max %.2f, at the floor %.1f%%, at the cap %.1f%%" % [lo, hi, 100.0 * at_min / n_items, 100.0 * at_max / n_items])
 	Game.restock(true)
-	print("tickets %d, trip %s, can start without one: %s" % [Game.tickets, Game.trip_active, Game.start_trip()])
+	print("tickets %d, trip %s, can start without one: %s" % [Game.ticket_count(), Game.trip_active, Game.start_trip()])
 	print("claim free: %s, claim again: %s, free ticket in %.0fs" % [Game.claim_free_ticket(), Game.claim_free_ticket(), Game.free_ticket_left()])
-	print("buy ticket: %s (coins %d), tickets %d" % [Game.buy_ticket(), Game.coins, Game.tickets])
+	print("buy ticket: %s (coins %d), tickets %d" % [Game.buy_ticket(), Game.coins, Game.ticket_count()])
 	for uid in Config.UPGRADES:
 		print("%s: lv1 %.3f  lv2 %.3f  lv125 %.2f  lv250 %.2f  cost lv1 %d  cost lv250 %d" % [uid, Game.upgrade_value(uid, 1),
 				Game.upgrade_value(uid, 2), Game.upgrade_value(uid, 125), Game.upgrade_value(uid, 250),
@@ -1587,6 +1741,12 @@ func _dev_shots(dir: String) -> void:
 	_open_shop("dwarf")
 	await get_tree().create_timer(0.3).timeout
 	get_viewport().get_texture().get_image().save_png(dir + "/5b_dwarf.png")
+	Game.tickets = {Game.first_cave(): 2, "magma_veins": 1}
+	Game.changed.emit()
+	_open_shop("caves")
+	await get_tree().create_timer(0.3).timeout
+	get_viewport().get_texture().get_image().save_png(dir + "/5b2_caves.png")
+	Game.tickets = {}
 	_open_market()
 	await get_tree().create_timer(0.3).timeout
 	get_viewport().get_texture().get_image().save_png(dir + "/5c_market.png")
@@ -1612,9 +1772,9 @@ func _dev_shots(dir: String) -> void:
 	await get_tree().create_timer(0.3).timeout
 	get_viewport().get_texture().get_image().save_png(dir + "/7_settings.png")
 	_close_overlays()
-	Game.tickets = 3
+	Game.tickets = {Game.first_cave(): 3}
 	_go_wall()
-	print("went down the mine: trip %s, tickets left %d" % [Game.trip_active, Game.tickets])
+	print("went down the mine: trip %s, tickets left %d" % [Game.trip_active, Game.ticket_count()])
 	var shot := func(name: String): get_viewport().get_texture().get_image().save_png(dir + "/" + name + ".png")
 	await get_tree().create_timer(1.0).timeout
 	wall_view.dev_mouse = wall_view.size * 0.5
@@ -1893,7 +2053,7 @@ func _dev_shots(dir: String) -> void:
 	await get_tree().create_timer(2.6).timeout
 	shot.call("u_trip_over")
 	print("after running out of lives: trip %s, on the wall %s" % [Game.trip_active, on_wall])
-	Game.tickets = 0
+	Game.tickets = {}
 	_go_wall()  # no ticket -> Dwarven Shop
 	await get_tree().create_timer(0.4).timeout
 	shot.call("u_need_ticket")

@@ -8,11 +8,13 @@ From YOUR art:
   art_source/new_gems.png       left = Tourmaline, right = Zapperion (32 x 32 each)
   art_source/rustvein.png       Rustvein (32 x 32)
   art_source/new_ores_2.png     Lapis, Stibnite, Obsidian (32 x 32 each, left to right)
+  art_source/cave_sheet.png     the cave walls, 32 x 32 each, left to right (see CAVE_TILES below)
 Writes:
   assets/ui/skin/button.png (+ _hover, _pressed, _disabled), panel.png (menus), slot.png (sunken boxes),
   grabber.png (slider knob) - tiny (16 px) art, scaled up by UI_PIXEL_SCALE in the game
   assets/ui/upgrades/<upgrade id>.png and assets/ui/ticket.png - PLACEHOLDERS (16 x 16), replace freely
   assets/ores/rustvein.png, tourmaline.png, zapperion.png, lapis.png, stibnite.png, obsidian.png
+  assets/wall/<cave id>.png (the caves' wall tiles, Config.CAVES)
   art_source/ui/preview.png - everything side by side, 6x, to look at
 The game reads the 9-slice margins from Config (UI_SKIN_*): the corners never stretch, so a redrawn
 skin just needs the same border sizes - or change those numbers.
@@ -94,6 +96,82 @@ ICONS = {
     ],
     # Rocky Riches: a heap of ore lumps (drawn below), plus a "+"
     "rocky_riches": None,
+    # Heat of the Forge: a roaring flame over the forge
+    "heat_of_the_forge": [
+        "................",
+        ".......KK.......",
+        "......KoOK......",
+        "......KooK......",
+        ".....KoyoOK.....",
+        "....KOoyyoK.....",
+        "....KoyYyoOK....",
+        "...KOoyYYyoK....",
+        "...KoyYwwYyoK...",
+        "...KoyYwwYyoK...",
+        "...KOoyYYyoOK...",
+        "....KOoyyoOK....",
+        ".....KKOOKK.....",
+        "...KnnnnnnnnK...",
+        "...KKKKKKKKKK...",
+        "................",
+    ],
+    # Pack of Fluid: a can of lighter fluid and a drop
+    "pack_of_fluid": [
+        "................",
+        "..........KK....",
+        ".........KMMK...",
+        "........KMK.....",
+        "...KKKKKKK......",
+        "..KBBBBBBBK.....",
+        "..KBbbbbbbK.....",
+        "..KbwBbbbbK.....",
+        "..KbBbbbbbK.....",
+        "..KbbbbbbbK..b..",
+        "..KbbbbbbbK.bBb.",
+        "..KbbbbbbbK.bwb.",
+        "..KbbbbbbbK..b..",
+        "..KKKKKKKKK.....",
+        "................",
+        "................",
+    ],
+    # Silktouch: a rock resting safe on a soft cushion
+    "silktouch": [
+        "............Y...",
+        "...........YwY..",
+        "............Y...",
+        "....KKKKKK......",
+        "...KMlMMMMK.....",
+        "..KMlMMMMGGK....",
+        ".KMMMMMMGGGGK...",
+        ".KMMMMMGGGGGK...",
+        ".KGMMGGGGGgGK...",
+        "..KGGGGGgggK....",
+        "...KKKKKKKK.....",
+        ".KBBBBBBBBBBBK..",
+        "KBbbbbbbbbbbbbK.",
+        ".KKKKKKKKKKKKK..",
+        "................",
+        "................",
+    ],
+    # Ticket Hungry: a ticket with a bite out of it
+    "ticket_hungry": [
+        "................",
+        "................",
+        "................",
+        "KKKKKKKKKKK.....",
+        "KYYYYKYYYYYK....",
+        "KyyyyyyyyyyyK...",
+        ".KyyyKyyyyyyK.y.",
+        "..KyyyyyyyyK....",
+        ".KyyyKyyyyyyK.o.",
+        "KyyyyyyyyOOOyK..",
+        "KooooKoooooooooK",
+        "KKKKKKKKKKKKKKKK",
+        "................",
+        "................",
+        "................",
+        "................",
+    ],
     # Digging Expert: a shovel and a coin
     "digging_expert": [
         ".....KKKKKKK....",
@@ -350,10 +428,22 @@ def cut_ores():
         more.crop((i * 32, 0, i * 32 + 32, 32)).save(ROOT / f"assets/ores/{oid}.png")
 
 
+# art_source/cave_sheet.png, left to right -> cave id (None = skip; the last one is the Old Mine's wall_tile.png)
+CAVE_TILES = ["shale_hollow", "crimson_deep", "blackrock_tunnels", "crystal_grotto", "magma_veins", None]
+
+
+def cut_caves():
+    sheet = Image.open(ROOT / "art_source/cave_sheet.png").convert("RGBA")
+    for i, cid in enumerate(CAVE_TILES):
+        if cid:
+            sheet.crop((i * 32, 0, i * 32 + 32, 32)).save(ROOT / f"assets/wall/{cid}.png")
+
+
 def main():
     skin = make_skin()
     icons = make_icons()
     cut_ores()
+    cut_caves()
     # preview sheet
     items = list(icons.values())
     prev = Image.new("RGBA", (16 * 6 * len(items) + 10 * len(items), 16 * 6), (40, 30, 30, 255))

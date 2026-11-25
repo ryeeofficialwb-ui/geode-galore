@@ -3,7 +3,7 @@
     py -3.12 tools/publish_update.py 0.2 "What changed"
     py -3.12 tools/publish_update.py 0.2 "What changed" --full     (also a full Windows download)
 
-Versions: Indev 0.1 is the first release. Releases are titled "Rich From Rocks Indev <version>"
+Versions: Indev 0.1 is the first release. Releases are titled "Geode Galore Indev <version>"
 (GameVersion.STAGE). (Ported from Seed Splicer's publish script.)
 
 1. Sets GameVersion.VERSION (scripts/game_version.gd) to the new version.
@@ -120,7 +120,7 @@ def publish(version, notes, repo, assets):
     run("git", "tag", "v%s" % version)
     run("git", "push", "origin", "HEAD", "--tags")
     run(GH, "release", "create", "v%s" % version, *assets, "--repo", repo,
-        "--title", "Rich From Rocks %s %s" % (stage(), version), "--notes", notes or "Update %s %s" % (stage(), version))
+        "--title", "Geode Galore %s %s" % (stage(), version), "--notes", notes or "Update %s %s" % (stage(), version))
     print("\nPublished %s %s to %s. Games older than it update the next time they start." % (stage(), version, repo))
 
 

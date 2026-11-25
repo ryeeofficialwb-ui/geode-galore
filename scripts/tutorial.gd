@@ -100,7 +100,7 @@ func _make_steps() -> void:
 		var wv: Control = m.wall_view
 		return Rect2(wv.global_position + Vector2(wv.size.x * 0.5 - 230, 8), Vector2(wv.size.x * 0.5 + 220, 128))  # stage line + lives
 	steps = [
-		{"title": "Welcome to Rich From Rocks!", "screen": "main",
+		{"title": "Welcome to " + GameVersion.TITLE + "!", "screen": "main",
 			"text": "Buy rocks, smash them open, sell the ores and gems inside, then buy better rocks. This tour shows you everything. You can open it again any time with the ? button at the top."},
 		{"title": "The anvil", "screen": "main", "target": func(): return m.rock_stack.get_global_rect().grow(16),
 			"text": "Click the rock to hit it. Each hit cracks it a bit more; after a few hits (cheap rocks 2-3, big ones up to 8) it breaks open. Go on, give it a whack!"},
@@ -111,9 +111,9 @@ func _make_steps() -> void:
 		{"title": "Selling", "screen": "main", "target": func(): return m.backpack_btn.get_global_rect().grow(6),
 			"text": "Open the Backpack to sell your ores and gems for coins: one at a time, a whole stack with All, or everything at once."},
 		{"title": "The Shop", "screen": "main", "target": func(): return m.shop_btn.get_global_rect().merge(m.coin_label.get_global_rect()).grow(6),
-			"text": "Spend your coins in the Shop. It has a few kinds of rocks with limited stock and restocks every %d minutes with new rocks. Every restock the MARKET moves too: rock prices and what ores and gems sell for go up and down (from 10%% to 200%% of normal). Sell when the price is green! The Market button lists today's price of everything, and tells you about every ore and gem." % int(Config.RESTOCK_SECONDS / 60.0)},
+			"text": "Spend your coins in the Shop. It has a few kinds of rocks with limited stock and restocks every %d minutes with new rocks. Every restock the MARKET moves too: rock prices and what ores and gems sell for go up and down (from 10%% to 200%% of normal). Green is always good for you: sell ores and gems when they're green, buy rocks when they're green (cheap). The Market button lists today's price of everything, and tells you about every ore and gem." % int(Config.RESTOCK_SECONDS / 60.0)},
 		{"title": "The Dwarven Shop", "screen": "main", "target": func(): return m.shop_btn.get_global_rect().merge(m.ticket_icon.get_global_rect()).grow(6),
-			"text": "The Shop's second tab is the Dwarven Shop. Buy UPGRADES there (better ore and gem chances, more ores, more mine coins, lucky sales) and TICKETS for the mine: one free ticket every %d minutes, or buy one for %d coins. Your tickets are shown next to your coins." % [int(Config.FREE_TICKET_SECONDS / 60.0), Config.TICKET_PRICE]},
+			"text": "The Shop's second tab is the Dwarven Shop: buy UPGRADES there (better ore and gem chances, more ores, more mine coins, lucky sales, more lives...). The third tab is CAVES: every cave needs its own TICKET. There's a free %s ticket every %d minutes, or buy one for %d coins; deeper caves pay more. Your tickets are shown next to your coins." % [Game.cave_name(Game.first_cave()), int(Config.FREE_TICKET_SECONDS / 60.0), Config.TICKET_PRICE]},
 		{"title": "Out of coins?", "screen": "main", "target": func(): return m.mine_btn.get_global_rect().grow(6),
 			"text": "The Mine arrow takes you to the mining wall, where you earn coins with quick actions. Going down costs a ticket, and the trip lasts until you run out of lives. This tour is free though - let's go there now."},
 		{"title": "It's dark down here", "screen": "wall", "practice": "flick",

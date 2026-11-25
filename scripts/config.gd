@@ -1,6 +1,6 @@
 class_name Config
 ## ====================================================================================
-##  RICH FROM ROCKS - GAME SETTINGS
+##  GEODE GALORE - GAME SETTINGS
 ##  Every line marked "# configurable" is safe to change. Save the file and press Play.
 ##  Chances are in PERCENT (0 - 100). Times are in SECONDS. Prices are in COINS.
 ##
@@ -69,8 +69,10 @@ const MARKET_MIN := 0.1  # configurable  (10% of the normal price at the lowest)
 const MARKET_MAX := 2.0  # configurable  (200% of the normal price at the highest)
 const MARKET_SWING := 0.3  # configurable  (how far a price can jump per restock; 0 = prices never change)
 const MARKET_PULL := 0.2  # configurable  (0 - 1: how strongly prices drift back to normal each restock)
-const MARKET_UP_COLOR := Color("#91db69")  # configurable  (price above normal)
-const MARKET_DOWN_COLOR := Color("#f68181")  # configurable  (price below normal)
+## Green = good for you, red = bad. Ores & gems: a price ABOVE normal is green (you sell for more).
+## Rocks: a price BELOW normal is green (cheaper to buy) and above normal is red.
+const MARKET_GOOD_COLOR := Color("#91db69")  # configurable
+const MARKET_BAD_COLOR := Color("#f68181")  # configurable
 ## Allow the same rock type in two slots at once?
 const ALLOW_DUPLICATE_SLOTS := false  # configurable
 ## Pay to restock right now. Set to -1 to hide the button.
@@ -80,9 +82,30 @@ const INSTANT_RESTOCK_COST := 25  # configurable
 # ------------------------------------------------------------------ DWARVEN SHOP  (tickets & upgrades)
 ## You need a TICKET to go down the mine (the mining wall). One ticket = one trip: it lasts until you
 ## run out of lives (then you're sent back up). Going Back to your rocks doesn't end the trip.
-const TICKET_PRICE := 100  # configurable  (coins)
+## Every CAVE (see CAVES below) has its own tickets. The free ticket is always for the first cave.
+const TICKET_PRICE := 100  # configurable  (coins, a ticket for the first cave)
 const FREE_TICKET_SECONDS := 600.0  # configurable  (a free ticket can be claimed this often: 600 = every 10 minutes)
-const START_TICKETS := 0  # configurable  (a new game can also claim its first free ticket straight away)
+const START_TICKETS := 0  # configurable  (first-cave tickets in a new game; it can also claim its first free ticket straight away)
+
+## CAVES: the mines you can go down. Each needs its own ticket and keeps its own stage (checkpoint).
+## They're listed in the Shop's "Caves" tab in this order. The first one is where free tickets go.
+##   name          shown in the game
+##   tile          the wall tile (32 x 32, repeated over the wall). Cut from art_source/cave_sheet.png
+##   ticket_price  coins for one ticket
+##   coins         x coins you earn down there
+##   fuel          how long your light lasts compared to the first cave (0.8 = fades 20% faster)
+##   stone_chance  % chance that clearing a stage finds a rock (any rock type) for your bag
+const CAVES := {  # configurable (whole table)
+	"old_mine": {"name": "Old Mine", "tile": "res://assets/wall/wall_tile.png", "ticket_price": TICKET_PRICE, "coins": 1.0, "fuel": 1.0, "stone_chance": 1.0},
+	"shale_hollow": {"name": "Shale Hollow", "tile": "res://assets/wall/shale_hollow.png", "ticket_price": 250, "coins": 1.4, "fuel": 0.95, "stone_chance": 1.8},
+	"crimson_deep": {"name": "Crimson Deep", "tile": "res://assets/wall/crimson_deep.png", "ticket_price": 600, "coins": 1.9, "fuel": 0.9, "stone_chance": 2.6},
+	"blackrock_tunnels": {"name": "Blackrock Tunnels", "tile": "res://assets/wall/blackrock_tunnels.png", "ticket_price": 1400, "coins": 2.6, "fuel": 0.85, "stone_chance": 3.4},
+	"magma_veins": {"name": "Magma Veins", "tile": "res://assets/wall/magma_veins.png", "ticket_price": 3000, "coins": 3.5, "fuel": 0.8, "stone_chance": 4.2},
+	"crystal_grotto": {"name": "Crystal Grotto", "tile": "res://assets/wall/crystal_grotto.png", "ticket_price": 6500, "coins": 4.75, "fuel": 0.75, "stone_chance": 5.0},
+}
+## Rocks found in caves: true = every rock type is as likely as any other; false = they follow shop_weight
+## (cheap rocks more often).
+const CAVE_STONE_ANY_EQUAL := true  # configurable
 ## Upgrades. Level 1 gives "first", the last level gives exactly "max"; the levels in between follow a
 ## smooth curve (so each level of Miner's Favor adds a bit less than the one before).
 ##   name / text   shown in the shop ("text" says what the number is)
@@ -96,6 +119,12 @@ const UPGRADES := {  # configurable (whole table)
 	"rocky_riches": {"name": "Rocky Riches", "text": "ores per drop", "first": 0.25, "max": 200.0, "levels": 250, "cost": 50, "cost_growth": 1.022},  # max +200% = x3 ores (gems don't count)
 	"digging_expert": {"name": "Digging Expert", "text": "coins in the mine", "first": 2.5, "max": 400.0, "levels": 250, "cost": 30, "cost_growth": 1.022},
 	"fools_gold": {"name": "Fool's Gold", "text": "chance to sell for more", "first": 0.2, "max": 20.0, "levels": 250, "cost": 75, "cost_growth": 1.022},
+	"heat_of_the_forge": {"name": "Heat of the Forge", "text": "light per lighter flick", "first": 0.04, "max": 10.0, "levels": 250, "cost": 60, "cost_growth": 1.022},
+	## Pack of Fluid: the value is extra LIVES (not %), counted in half lives: 20 levels for +2 lives = half a life
+	## every 5 levels, so 3 + 2 = 5 lives at max. Lives never go above MAX_LIVES (5) no matter what.
+	"pack_of_fluid": {"name": "Pack of Fluid", "text": "lives every stage", "first": 0.1, "max": 2.0, "levels": 20, "cost": 2500, "cost_growth": 1.25},
+	"silktouch": {"name": "Silktouch", "text": "chance a rock doesn't break", "first": 0.08, "max": 20.0, "levels": 250, "cost": 120, "cost_growth": 1.022},
+	"ticket_hungry": {"name": "Ticket Hungry", "text": "chance of a ticket per stage cleared", "first": 0.1, "max": 3.0, "levels": 50, "cost": 150, "cost_growth": 1.08},
 }
 const FOOLS_GOLD_BONUS := 15.0  # configurable  (% extra a Fool's Gold sale pays)
 const FOOLS_GOLD_GEMS := true  # configurable  (false = Fool's Gold only works when selling ores, not gems)
@@ -287,9 +316,15 @@ const WICK_GAUGE := true  # configurable  (show the wick next to the lighter)
 const WICK_GAUGE_HEIGHT := 185.0  # configurable  (px)
 const WICK_GAUGE_MARGIN := Vector2(26, 26)  # configurable  (px from the bottom-right corner of the screen)
 ## About to lose: the lighter trembles harder the closer you are.
-const DANGER_AT := 0.25  # configurable  (it starts trembling when the wick or the light drops below this)
+const DANGER_AT := 0.3  # configurable  (it starts trembling when the wick or the light drops below this)
 const DANGER_RELIGHT_SECONDS := 2.0  # configurable  (... or in the last this-many seconds of the relight countdown)
-const DANGER_SHAKE := 7.0  # configurable  (px it trembles at most; 0 = never)
+const DANGER_SHAKE := 18.0  # configurable  (px the lighter trembles at most; 0 = never)
+const DANGER_SCREEN_SHAKE := 5.0  # configurable  (px the whole screen trembles at most when you're about to lose; 0 = never)
+## ... and a red border throbs in from the screen edges like a heartbeat (faster when it's closer).
+const STRESS_COLOR := Color("#e83b3b")  # configurable
+const STRESS_ALPHA := 0.45  # configurable  (how strong the red border gets at worst; 0 = off)
+const STRESS_WIDTH := 140.0  # configurable  (px it reaches in from the edges at worst)
+const STRESS_BANDS := 5  # configurable  (steps it fades in, pixel-art style)
 const LIGHT_HOLD_MIN := 3.0  # configurable  (once the flame reaches full it burns steady for MIN..MAX seconds at random,
 const LIGHT_HOLD_MAX := 10.0  # configurable   then starts dying again; flicking during that time floods it)
 const FULL_SHAKE := 0.6  # configurable  (how hard the lighter jolts when the flame reaches full; 0 = none)
@@ -302,7 +337,7 @@ const FLOOD_LIFE_COST := 0.5  # configurable  (lives a flood costs: half a life)
 const LIGHTER_KEY := KEY_SPACE  # configurable  (key to flick the lighter; clicking / tapping the lighter works too - that's how phones do it)
 const START_FLICKS_MIN := 3  # configurable  (flicks before the flame catches when you light it up: random MIN..MAX)
 const START_FLICKS_MAX := 5  # configurable
-const WALL_MARGINS := Vector4(140, 150, 175, 110)  # configurable  (px kept free at the wall's left, top, right, bottom: HUD, Back button, edges)
+const WALL_MARGINS := Vector4(140, 150, 90, 110)  # configurable  (px kept free at the wall's left, top, right, bottom: HUD, wick gauge, edges; the Back button has its own strip)
 const LIGHTER_LID_TIME := 0.18  # configurable  (seconds for the lid to open / close)
 const LIGHT_SOFT_EDGE := 0.45  # configurable  (part of the radius that fades out in steps; 0 = hard edge)
 const LIGHT_BANDS := 4  # configurable  (steps in the fade - it's pixel art, so no smooth gradient)
@@ -327,6 +362,7 @@ const RELIGHT_MISS_PENALTY := 1  # configurable  (a mistimed strike pushes the b
 ## Losing a life (lighter not relit in time) restarts the stage from its first wall - your stage
 ## is a checkpoint. Lose all your lives before clearing it and you drop down a stage.
 const LIVES := 3  # configurable
+const MAX_LIVES := 5.0  # configurable  (hard cap: you can NEVER have more lives than this, Pack of Fluid included)
 const WALLS_PER_STAGE := 5  # configurable
 const LOSS_RESTARTS_STAGE := true  # configurable  (false = losing a life keeps the walls you already broke this stage)
 ## Each stage up, things get harder - and pay more:
@@ -467,6 +503,8 @@ const UI_SKIN_PRESSED_MARGINS := Vector4i(3, 6, 3, 3)  # configurable  (pressed 
 const UI_SKIN_PANEL_MARGINS := Vector4i(10, 10, 10, 10)  # configurable
 const UI_SKIN_SLOT_MARGINS := Vector4i(3, 3, 3, 3)  # configurable
 const BG_COLOR := Color("#1c140f")  # configurable  (behind everything)
+const MENU_BAR_COLOR := Color("#2b1d14")  # configurable  (the top menu bar and the Back strip on the mine screen)
+const MENU_BAR_EDGE := Color("#6e4b2f")  # configurable  (line under the menu bar)
 const PANEL_COLOR := Color("#3a281c")  # configurable  (dark wood panels)
 const PANEL_BORDER := Color("#6e4b2f")  # configurable
 const BUTTON_COLOR := Color("#7c5534")  # configurable

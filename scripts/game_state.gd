@@ -8,6 +8,8 @@ signal toast(text: String)
 signal lucky_sale(ore_id: String, extra: int)  # Fool's Gold paid extra on a sale
 signal market_moved       # prices changed (timed restock)
 signal trip_over          # ran out of lives: the mine ticket is used up
+signal found_rock(rock_id: String)    # clearing a stage found a rock (cave stone_chance)
+signal found_ticket(cave_id: String)  # clearing a stage found a ticket (Ticket Hungry)
 
 const SAVE_PATH := "user://save.cfg"
 const LEGACY_ORES := {"copper_ore": "copper", "iron_ore": "iron", "sandstone": "lead"}
@@ -25,7 +27,10 @@ var lives := 0.0          # lives left in this stage (halves count: flooding the
 var stage_walls := 0      # walls broken in this stage
 var best_stage := 1
 var market := {}          # rock / ore id -> price multiplier (supply & demand), 1.0 = normal
-var tickets := 0          # mine tickets
+var tickets := {}         # cave id -> mine tickets for that cave
+var cave := ""            # the cave you're in (or were in last); stage / lives / stage_walls are this cave's
+var cave_progress := {}   # other caves' stage checkpoints: cave id -> {stage, lives, stage_walls, best_stage}
+var last_break_saved := false  # Silktouch kept the last rock you broke
 var free_ticket_at := 0.0 # unix time when the next free ticket can be claimed
 var trip_active := false  # a ticket has been used and you haven't run out of lives yet
 var upgrades := {}        # upgrade id -> level
@@ -65,16 +70,20 @@ func _new_game() -> void:
 	ores = {}
 	current_rock = ""
 	rocks_broken = 0
+	upgrades = {}
 	stage = 1
-	lives = Config.LIVES
+	lives = max_lives()
 	stage_walls = 0
 	best_stage = 1
 	market = {}
 	market_prev = {}
-	tickets = Config.START_TICKETS
+	cave = first_cave()
+	cave_progress = {}
+	tickets = {}
+	if Config.START_TICKETS > 0:
+		tickets[first_cave()] = Config.START_TICKETS
 	free_ticket_at = now()  # the first free ticket is ready
 	trip_active = false
-	upgrades = {}
 	restock()
 
 
@@ -182,6 +191,10 @@ func hits_for(id: String) -> int:
 func break_current() -> Dictionary:
 	var got := {}
 	var r: Dictionary = Config.ROCKS.get(current_rock, {})
+	# Silktouch: a chance the rock survives - you still get its drops and it goes back in your bag
+	last_break_saved = current_rock != "" and randf() * 100.0 < upgrade_value("silktouch")
+	if last_break_saved:
+		rocks[current_rock] = rocks.get(current_rock, 0) + 1
 	for roll in int(r.get("rolls", 1)):
 		for ore_id in Config.ORES:  # every rock can drop every ore / gem
 			if randf() * 100.0 < drop_chance(current_rock, ore_id):
@@ -204,13 +217,40 @@ func break_current() -> Dictionary:
 func wall_cleared() -> bool:
 	stage_walls += 1
 	var up := stage_walls >= Config.WALLS_PER_STAGE
+	var found_r := ""
+	var found_t := ""
 	if up:
 		stage += 1
 		best_stage = maxi(best_stage, stage)
-		lives = Config.LIVES
+		lives = max_lives()
 		stage_walls = 0
+		# the cave may give you a rock (any rock type) ...
+		if randf() * 100.0 < float(cave_info().get("stone_chance", 0.0)):
+			found_r = _random_rock()
+			if found_r != "":
+				rocks[found_r] = rocks.get(found_r, 0) + 1
+		# ... and Ticket Hungry a ticket for any cave
+		if randf() * 100.0 < upgrade_value("ticket_hungry"):
+			found_t = Config.CAVES.keys().pick_random()
+			tickets[found_t] = ticket_count(found_t) + 1
 	save()
+	if found_r != "" or found_t != "":
+		changed.emit()
+	if found_r != "":
+		found_rock.emit(found_r)
+	if found_t != "":
+		found_ticket.emit(found_t)
 	return up
+
+
+## Any rock type for the caves' stone drops (CAVE_STONE_ANY_EQUAL: all equally likely, or by shop_weight).
+func _random_rock() -> String:
+	var pool := {}
+	for id in Config.ROCKS:
+		var w := 1.0 if Config.CAVE_STONE_ANY_EQUAL else float(Config.ROCKS[id].get("shop_weight", 1))
+		if w > 0.0:
+			pool[id] = w
+	return "" if pool.is_empty() else _weighted_pick(pool)
 
 
 ## Lose some life: 1 = didn't relight in time (the stage restarts), 0.5 = flooded the lighter.
@@ -222,7 +262,7 @@ func lose_life(amount := 1.0, restart := true) -> bool:
 	var down := lives <= 0.0
 	if down:
 		stage = maxi(1, stage - 1)
-		lives = Config.LIVES
+		lives = max_lives()
 		stage_walls = 0
 		if trip_active:  # out of lives: the ticket is used up
 			trip_active = false
@@ -234,7 +274,7 @@ func lose_life(amount := 1.0, restart := true) -> bool:
 
 ## How long the light lasts (and tap ring speed) compared to stage 1.
 func stage_fuel_factor() -> float:
-	return maxf(1.0 - (stage - 1) * Config.STAGE_FUEL_STEP, Config.STAGE_FUEL_MIN)
+	return maxf(1.0 - (stage - 1) * Config.STAGE_FUEL_STEP, Config.STAGE_FUEL_MIN) * float(cave_info().get("fuel", 1.0))
 
 
 ## SPACE hits needed to relight (min, max).
@@ -247,9 +287,69 @@ func stage_coin_mult() -> float:
 	return 1.0 + (stage - 1) * Config.STAGE_COIN_BONUS
 
 
-## Everything that multiplies the coins you earn in the mine: stage bonus x Digging Expert.
+## Everything that multiplies the coins you earn in the mine: stage bonus x the cave x Digging Expert.
 func mine_coin_mult() -> float:
-	return stage_coin_mult() * (1.0 + upgrade_value("digging_expert") / 100.0)
+	return stage_coin_mult() * float(cave_info().get("coins", 1.0)) * (1.0 + upgrade_value("digging_expert") / 100.0)
+
+
+## Lives you get every stage: Config.LIVES + Pack of Fluid (in half lives), never above Config.MAX_LIVES.
+func max_lives() -> float:
+	return minf(float(Config.LIVES) + fluid_lives(), Config.MAX_LIVES)
+
+
+## Pack of Fluid's extra lives, rounded down to half lives.
+func fluid_lives(level := -1) -> float:
+	return floorf(upgrade_value("pack_of_fluid", level) * 2.0 + 0.001) / 2.0
+
+
+# ------------------------------------------------------------------ caves
+func first_cave() -> String:
+	return Config.CAVES.keys()[0]
+
+
+func cave_info(id := "") -> Dictionary:
+	return Config.CAVES.get(cave if id == "" else id, {})
+
+
+func cave_name(id := "") -> String:
+	return cave_info(id).get("name", id)
+
+
+func ticket_price(id: String) -> int:
+	return int(cave_info(id).get("ticket_price", Config.TICKET_PRICE))
+
+
+## Tickets for one cave, or for all caves together ("").
+func ticket_count(id := "") -> int:
+	if id != "":
+		return int(tickets.get(id, 0))
+	var n := 0
+	for k in tickets:
+		n += int(tickets[k])
+	return n
+
+
+## The best stage you reached in a cave.
+func cave_best(id: String) -> int:
+	return best_stage if id == cave else int(cave_progress.get(id, {}).get("best_stage", 1))
+
+
+func cave_stage(id: String) -> int:
+	return stage if id == cave else int(cave_progress.get(id, {}).get("stage", 1))
+
+
+## Switches the stage checkpoint over to another cave (each cave keeps its own).
+func _switch_cave(id: String) -> void:
+	if id == cave:
+		return
+	cave_progress[cave] = {"stage": stage, "lives": lives, "stage_walls": stage_walls, "best_stage": best_stage}
+	cave = id
+	var p: Dictionary = cave_progress.get(id, {})
+	cave_progress.erase(id)
+	stage = maxi(1, int(p.get("stage", 1)))
+	lives = clampf(float(p.get("lives", max_lives())), 0.5, max_lives())
+	stage_walls = clampi(int(p.get("stage_walls", 0)), 0, Config.WALLS_PER_STAGE - 1)
+	best_stage = maxi(stage, int(p.get("best_stage", 1)))
 
 
 # ------------------------------------------------------------------ tickets
@@ -260,30 +360,41 @@ func free_ticket_left() -> float:
 func claim_free_ticket() -> bool:
 	if free_ticket_left() > 0.0:
 		return false
-	tickets += 1
+	tickets[first_cave()] = ticket_count(first_cave()) + 1
 	free_ticket_at = now() + Config.FREE_TICKET_SECONDS
 	changed.emit()
 	save()
 	return true
 
 
-func buy_ticket() -> bool:
-	if coins < Config.TICKET_PRICE:
+func buy_ticket(id := "") -> bool:
+	if id == "":
+		id = first_cave()
+	if not Config.CAVES.has(id) or coins < ticket_price(id):
 		return false
-	coins -= Config.TICKET_PRICE
-	tickets += 1
+	coins -= ticket_price(id)
+	tickets[id] = ticket_count(id) + 1
 	changed.emit()
 	save()
 	return true
 
 
-## Going down the mine: uses a ticket unless a trip is already going. false = no ticket.
-func start_trip() -> bool:
+## Going down the mine: uses a ticket for that cave unless a trip is already going. false = no ticket.
+## id "" = the cave you were in last if you have a ticket for it, else any cave you have a ticket for.
+func start_trip(id := "") -> bool:
 	if trip_active:
 		return true
-	if tickets <= 0:
+	if id == "":
+		id = cave if ticket_count(cave) > 0 else ""
+		for k in Config.CAVES:
+			if id == "" and ticket_count(k) > 0:
+				id = k
+	if id == "" or ticket_count(id) <= 0:
 		return false
-	tickets -= 1
+	tickets[id] = ticket_count(id) - 1
+	if tickets[id] <= 0:
+		tickets.erase(id)
+	_switch_cave(id)
 	trip_active = true
 	changed.emit()
 	save()
@@ -326,7 +437,9 @@ func buy_upgrade(id: String) -> bool:
 	if upgrade_level(id) >= upgrade_max(id) or coins < upgrade_cost(id):
 		return false
 	coins -= upgrade_cost(id)
+	var before := max_lives()
 	upgrades[id] = upgrade_level(id) + 1
+	lives += max_lives() - before  # Pack of Fluid tops you up straight away
 	changed.emit()
 	save()
 	return true
@@ -508,6 +621,8 @@ func save() -> void:
 	cfg.set_value("mine", "lives", lives)
 	cfg.set_value("mine", "stage_walls", stage_walls)
 	cfg.set_value("mine", "best_stage", best_stage)
+	cfg.set_value("mine", "cave", cave)
+	cfg.set_value("mine", "caves", cave_progress)
 	cfg.set_value("market", "prices", market)
 	cfg.set_value("dwarves", "tickets", tickets)
 	cfg.set_value("dwarves", "free_ticket_at", free_ticket_at)
@@ -540,8 +655,21 @@ func _load() -> bool:
 		current_rock = ""
 	rocks_broken = cfg.get_value("game", "rocks_broken", 0)
 	tutorial_done = cfg.get_value("game", "tutorial_done", false)
+	upgrades = {}  # (loaded first: Pack of Fluid sets how many lives you can have)
+	var up: Dictionary = cfg.get_value("dwarves", "upgrades", {})
+	for id in up:
+		if Config.UPGRADES.has(id):
+			upgrades[id] = clampi(int(up[id]), 0, upgrade_max(id))
+	cave = cfg.get_value("mine", "cave", first_cave())
+	if not Config.CAVES.has(cave):
+		cave = first_cave()
+	cave_progress = {}
+	var cp: Dictionary = cfg.get_value("mine", "caves", {})
+	for id in cp:
+		if Config.CAVES.has(id) and id != cave and cp[id] is Dictionary:
+			cave_progress[id] = cp[id]
 	stage = maxi(1, cfg.get_value("mine", "stage", 1))
-	lives = clampf(snappedf(float(cfg.get_value("mine", "lives", Config.LIVES)), 0.5), 0.5, Config.LIVES)
+	lives = clampf(snappedf(float(cfg.get_value("mine", "lives", max_lives())), 0.5), 0.5, max_lives())
 	stage_walls = clampi(cfg.get_value("mine", "stage_walls", 0), 0, Config.WALLS_PER_STAGE - 1)
 	best_stage = maxi(stage, cfg.get_value("mine", "best_stage", 1))
 	market = {}
@@ -551,14 +679,15 @@ func _load() -> bool:
 			market[id] = clampf(float(mk[id]), Config.MARKET_MIN, Config.MARKET_MAX)
 	show_hints = cfg.get_value("prefs", "show_hints", true)
 	market_prev = cfg.get_value("market", "prev", {})
-	tickets = maxi(0, cfg.get_value("dwarves", "tickets", Config.START_TICKETS))
+	var tk = cfg.get_value("dwarves", "tickets", Config.START_TICKETS)
+	if tk is Dictionary:
+		tickets = _known(tk, Config.CAVES)
+	else:  # saves from before caves: a plain number = tickets for the first cave
+		tickets = {}
+		if int(tk) > 0:
+			tickets[first_cave()] = int(tk)
 	free_ticket_at = minf(float(cfg.get_value("dwarves", "free_ticket_at", 0.0)), now() + Config.FREE_TICKET_SECONDS)
 	trip_active = cfg.get_value("dwarves", "trip_active", false)
-	upgrades = {}
-	var up: Dictionary = cfg.get_value("dwarves", "upgrades", {})
-	for id in up:
-		if Config.UPGRADES.has(id):
-			upgrades[id] = clampi(int(up[id]), 0, upgrade_max(id))
 	return true
 
 

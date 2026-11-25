@@ -1,13 +1,16 @@
-# Rich From Rocks  (Indev 0.2)
+# Geode Galore  (Indev 0.3)
+
+(formerly *Rich From Rocks*. The files keep the old name - `RichFromRocks.exe`, the save folder - so
+updates and saves carry over.)
 
 (c) 2026 ryeeofficialwb-ui. All rights reserved. See [LICENSE](LICENSE).
 
 Buy rocks, smash them open (3-5 clicks, random), find ores and gems, sell them, buy better rocks.
 Short on coins? Click **< Mine** on the left to go to the mining wall and earn coins with quick mining actions
-(you need a **ticket** from the Dwarven Shop).
+(you need a **ticket** for one of the **caves**: Shop > Caves).
 
 **Screens**
-- **Top bar:** coins, your mine **tickets**, **Shop** (two tabs: **Rock Shop** and **Dwarven Shop**), **Backpack** (your ores & gems, sell them here), **Settings** (sound on/off, music volume, sound-effect volume, reset), **?** (the tutorial).
+- **Top bar:** coins, your mine **tickets**, **Shop** (three tabs: **Rock Shop**, **Dwarven Shop** and **Caves**), **Backpack** (your ores & gems, sell them here), **Settings** (sound on/off, music volume, sound-effect volume, reset), **?** (the tutorial).
 - **Tutorial:** opens by itself on a new game (and once for old saves), and any time from **?**. It spotlights each part of the game and lets you try every wall action with no timer. Skip with **Skip tutorial** or Esc; arrow keys / Enter step through it.
 - **Main screen:** the rock in the middle, **Your Rocks** on the right, **< Mine** arrow on the left.
 - **Market & Guide** (top bar): today's price of every ore, gem and rock, its % of normal and how it moved at the
@@ -18,16 +21,20 @@ Short on coins? Click **< Mine** on the left to go to the mining wall and earn c
   ticket and market notes, each wall action's instruction line, the "Flick SPACE..." / "Hit SPACE..." prompts).
 - **Market (supply & demand):** every time the shop restocks on its timer (every 5 minutes) demand shifts: every
   rock's shop price and every ore / gem's sell price moves up or down from where it was, drifting back towards
-  normal over time. A price can never go above **200%** or below **10%** of its normal price. The Shop and Backpack
-  show the market price in **green** (above normal) or **red** (below). Paying to restock early gives new rocks
-  but doesn't move the market.
+  normal over time. A price can never go above **200%** or below **10%** of its normal price. The Shop, Market and
+  Backpack colour prices **green when they're good for you** and **red when bad**: ores & gems are green above
+  normal (you sell for more), rocks are green below normal (cheaper to buy). Paying to restock early gives new
+  rocks but doesn't move the market.
+- **Caves** (third tab of the Shop): six caves, each with its own wall, its own **tickets** and its own **stage**
+  checkpoint (`CAVES` in `config.gd`). One ticket = one **trip** down that cave, which lasts until you run out of
+  lives (then you're sent back up; going Back to your rocks doesn't end it). Claim a **free Old Mine ticket every
+  10 minutes**, or buy tickets (Old Mine 100 coins ... Crystal Grotto 6500). Deeper caves pay more coins but your
+  light fades faster. **Clearing a stage** has a **1-5%** chance (by cave) of finding a rock - any rock type - for
+  Your Rocks. **< Mine** goes back down the cave you were in last (if you have its ticket), the only cave you have
+  tickets for, or opens the Caves tab. (The tutorial's tour of the wall is free.)
 - **Dwarven Shop** (second tab of the Shop):
-  - **Tickets:** going down the mine costs a ticket. One ticket = one **trip**, which lasts until you run out of
-    lives (then you're sent back up; going Back to your rocks doesn't end it). Claim a **free ticket every 10
-    minutes**, or buy one for **100 coins**. Your ticket count is in the top bar. Without one, **< Mine** opens
-    the Dwarven Shop. (The tutorial's tour of the wall is free.)
-  - **Upgrades** (250 levels each; level 1 gives exactly the first number, level 250 exactly the max, a smooth
-    curve in between):
+  - **Upgrades** (level 1 gives exactly the first number, the last level exactly the max, a smooth curve in
+    between):
 
     | Upgrade | Level 1 | Max (lv 250) | What it does |
     |---|---|---|---|
@@ -36,8 +43,13 @@ Short on coins? Click **< Mine** on the left to go to the mining wall and earn c
     | **Rocky Riches** | +0.25% | +200% (x3) | ores per drop, ores only; a fraction is a chance of one more |
     | **Digging Expert** | +2.5% | +400% | coins from the mining wall |
     | **Fool's Gold** | 0.2% | 20% | chance a sale (one Sell / All / each ore in Sell Everything) pays **+15%** |
+    | **Heat of the Forge** | +0.04% | +10% | light each good lighter flick gives |
+    | **Pack of Fluid** (20 levels, expensive) | +0.1 | +2 lives | extra lives every stage: half a life every 5 levels, 3 -> 5 lives at Lv 20. Lives can never go above `MAX_LIVES` (5) |
+    | **Silktouch** | 0.08% | 20% | chance a rock you break doesn't break: you get its drops AND keep the rock |
+    | **Ticket Hungry** (50 levels) | 0.1% | 3% | chance clearing a stage gives a ticket for a random cave |
 
-    Costs start at 30-75 coins and grow 2.2% per level (all in `UPGRADES` in `config.gd`).
+    Costs start at 30-150 coins and grow 2.2% per level (Pack of Fluid: 2500, +25% per level; Ticket Hungry +8%);
+    all in `UPGRADES` in `config.gd`.
 - **Mining wall (left screen):** it's dark in the mine. You hold a big **lighter** at the bottom left like a torch.
   While it's lit the **whole wall is lit**, but the flame slowly fades and the wall gets darker in steps: **the light
   level is your timer** (there's no bar). Every flick of **SPACE** (or click / tap on the lighter) only adds **3-5%**
@@ -117,7 +129,7 @@ Every line you can change ends with `# configurable`. Save the file and press Pl
 | Tutorial | `SHOW_TUTORIAL` (texts are in `_make_steps()` in `scripts/tutorial.gd`) |
 | Shop (limited stock) | `SHOP_SLOTS`, `STOCK_MIN` / `STOCK_MAX`, `RESTOCK_SECONDS`, duplicate slots, instant-restock cost |
 | Market | lowest / highest price (`MARKET_MIN` / `MARKET_MAX`, 10% / 200%), how far prices jump each restock (`MARKET_SWING`), how fast they drift back to normal (`MARKET_PULL`), the green / red colours |
-| Dwarven Shop | `TICKET_PRICE`, `FREE_TICKET_SECONDS`, `START_TICKETS`, the `UPGRADES` table (name, first / max bonus, levels, cost, cost growth), `FOOLS_GOLD_BONUS`, `FOOLS_GOLD_GEMS` |
+| Dwarven Shop & caves | `TICKET_PRICE`, `FREE_TICKET_SECONDS`, `START_TICKETS`, the `CAVES` table (name, wall tile, ticket price, coins, fuel, stone chance), `CAVE_STONE_ANY_EQUAL`, the `UPGRADES` table (name, first / max bonus, levels, cost, cost growth), `FOOLS_GOLD_BONUS`, `FOOLS_GOLD_GEMS` |
 | `ROCKS` table | name, price, how often it's in the shop, its own hit count, rolls, **quality** (how good its drops are) and **bonus** (its speciality) |
 | `ORES` table | name, sell price, **type** (`"ore"` or `"gem"`: which upgrades boost it), rare (sparkle sound), text color, chances, amount |
 | Audio | volume and pitch variation per sound, music track per screen, fade time, starting music / sound-effect volume |
@@ -222,7 +234,7 @@ anything; pricier rocks lean towards silver, gold, jade and gems. All prices and
 ### Mining wall: `assets/wall/`
 | File | What it is |
 |---|---|
-| `wall_tile.png` | the 32x32 tile repeated over the whole wall (yours; the original is also in `art_source/`). Make it tile seamlessly. Size on screen = `WALL_TILE_SCALE` |
+| `wall_tile.png`, `<cave id>.png` | the caves' walls (`wall_tile.png` = the Old Mine; the others are cut from `art_source/cave_sheet.png` by `tools/make_ui.py`): the 32x32 tile repeated over the whole wall (yours; the original is also in `art_source/`). Make it tile seamlessly. Size on screen = `WALL_TILE_SCALE` |
 
 When the wall crumbles, every tile splits into 4 chunks that fall away, so the tile art is used for the rubble too.
 
@@ -249,7 +261,7 @@ panels are kept in `art_source/ui/ui_panels.png` (not used).
 
 | File | What it is |
 |---|---|
-| `assets/ui/upgrades/miners_favor.png` ... | the 5 upgrade icons: **PLACEHOLDERS** (16x16: pickaxe, gem, ore heap, shovel + coin, nugget). Same name = replaced |
+| `assets/ui/upgrades/miners_favor.png` ... | the 9 upgrade icons: **PLACEHOLDERS** (16x16: pickaxe, gem, ore heap, shovel + coin, nugget, flame, fluid can, rock on a cushion, bitten ticket). Same name = replaced |
 | `assets/ui/ticket.png` | the mine ticket icon (placeholder, 16x16) |
 | `assets/ui/skin/*.png` | the pixel skin (see above) |
 
@@ -260,7 +272,7 @@ Optional (none are made yet):
 | `assets/ui/shop.png`, `backpack.png`, `settings.png` | icon on that top-bar button |
 | `assets/ui/arrow_left.png`, `arrow_right.png` | icon on the "Mine" / "Back" screen arrows |
 | `assets/ui/coin.png` | coin icon next to your coins |
-| `assets/ui/background.png` | full-screen background (covers the plain color) |
+| `assets/ui/background.png` | full-screen background behind the rock (the table; 320x180 = 1280x720 at 4x). Source: your Aseprite `Table_Background.aseprite` |
 | `assets/ui/pedestal.png` | anvil / stand drawn under the rock |
 | `icon.svg` | the game's window/app icon |
 | fonts | **BoldPixels** by YukiPixels (`assets/fonts/BoldPixels.ttf`, CC BY-SA 4.0: free for commercial use, keep the credit; it's in Settings and `BoldPixels-LICENSE.txt`). Drawn with hard pixel edges (`FONT_PIXELATED`), a dark outline and a **drop shadow** (`TEXT_SHADOW_COLOR`, `TEXT_SHADOW_OFFSET`). It's only crisp at 16, 32, 48 px, so every text size is rounded to those (`FONT_PIXEL_SIZE`); buttons use 32 (`BUTTON_FONT_SIZE`). Another font: put it in `assets/fonts/` and set `FONT_FILE` / `TITLE_FONT_FILE` (set `FONT_PIXEL_SIZE = 0` for a non-pixel font) |
@@ -357,7 +369,7 @@ one). Rebuilding the slim engine needs the Godot source + Visual Studio: `tools/
 
 ## 4. License
 
-**All rights reserved** (see [`LICENSE`](LICENSE)): Rich From Rocks belongs to ryeeofficialwb-ui. Anyone may play the
+**All rights reserved** (see [`LICENSE`](LICENSE)): Geode Galore belongs to ryeeofficialwb-ui. Anyone may play the
 official releases and make videos of it with credit, but nobody may copy, reupload, sell, modify, or claim the game or
 its art as theirs. The owner's name is in the game (Settings, the corner of the rock screen) and in the exe's
 file details. The fonts, music and Godot Engine keep their own licenses.

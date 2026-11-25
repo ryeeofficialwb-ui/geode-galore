@@ -3,8 +3,11 @@ extends RefCounted
 ## The game's version, and where its updates come from. tools/publish_update.py sets VERSION when it
 ## publishes an update; don't change it by hand unless you're publishing.
 
+## The game's name, shown in the top bar, Settings and release titles. (Files keep the old name
+## "RichFromRocks" - RichFromRocks.exe / .pck, the save folder - so updates and saves keep working.)
+const TITLE := "Geode Galore"
 const STAGE := "Indev"  ## shown before the number: "Indev 0.1"
-const VERSION := "0.2.1"
+const VERSION := "0.3"
 ## The GitHub repository whose Releases hold the update packs (RichFromRocks-update-<version>.pck plus
 ## its .sha256). It must be PUBLIC: players' games download from it without logging in.
 const RELEASES_REPO := "ryeeofficialwb-ui/rich-from-rocks"
