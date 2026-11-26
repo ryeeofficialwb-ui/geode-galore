@@ -46,16 +46,17 @@ const SCREEN_SHAKE_ON_BREAK := 10.0  # configurable
 # ------------------------------------------------------------------ ECONOMY
 const START_COINS := 50  # configurable
 ## rock id -> how many you start with
-const START_ROCKS := {"rock_02": 3}  # configurable
+const START_ROCKS := {"rock_02": 3}  # configurable  (3 Pebbles, the cheapest rock)
 
 
 # ------------------------------------------------------------------ SHOP  (limited stock)
-## The shop shows SHOP_SLOTS random rock types. Each slot has a random stock between
-## STOCK_MIN and STOCK_MAX. When the timer runs out, the whole shop is re-rolled.
-const SHOP_SLOTS := 4  # configurable
-const STOCK_MIN := 1  # configurable
-const STOCK_MAX := 5  # configurable
-const RESTOCK_SECONDS := 300.0  # configurable
+## The shop is a wooden shelf with EVERY rock on it. At each restock every rock rolls its own stock
+## (ROCKS: stock_chance, stock_max): cheap rocks are nearly always there, the priciest only now and then.
+## The restocks follow the Philippine clock (UTC+8) and the stock and prices come from that time alone,
+## so EVERYONE sees the same shelf and the same prices at the same moment (no server needed).
+const RESTOCK_SECONDS := 300.0  # configurable  (restocks at :00, :05, :10 ... Philippine time)
+const MARKET_TIME_OFFSET := 8 * 3600  # configurable  (seconds east of UTC: 8 h = Philippine time)
+const MARKET_HISTORY := 40  # configurable  (restocks of price history worked out to get today's prices)
 
 # ------------------------------------------------------------------ MARKET  (supply & demand)
 ## Every time the shop restocks on its timer (RESTOCK_SECONDS), demand shifts: every rock's shop price
@@ -70,8 +71,6 @@ const MARKET_PULL := 0.2  # configurable  (0 - 1: how strongly prices drift back
 ## Rocks: a price BELOW normal is green (cheaper to buy) and above normal is red.
 const MARKET_GOOD_COLOR := Color("#91db69")  # configurable
 const MARKET_BAD_COLOR := Color("#f68181")  # configurable
-## Allow the same rock type in two slots at once?
-const ALLOW_DUPLICATE_SLOTS := false  # configurable
 ## Pay to restock right now. Set to -1 to hide the button.
 const INSTANT_RESTOCK_COST := 25  # configurable
 ## Every paid restock makes the next one cost this many times more (25 -> 63 -> 156 -> ...). It goes back
@@ -94,25 +93,33 @@ const START_TICKETS := 0  # configurable  (first-cave tickets in a new game; it 
 ##   ticket_price  coins for one ticket
 ##   coins         x coins you earn down there
 ##   fuel          how long your light lasts compared to the first cave (0.8 = fades 20% faster)
-##   stone_chance  % chance that clearing a stage finds a rock (any rock type) for your bag
+##   stone_chance  % chance that clearing stage 1 finds a pile of rocks for your bag (more on later stages)
+##   tiers         [lowest, highest] rock tier this cave's piles can hold (ROCK_TIERS: 1 = cheapest .. 5 = priciest)
 ##   head_start    the walls act as if you were this many stages further: more actions per wall and the
 ##                 harder move styles sooner (see ACTION_UNLOCK). The Crystal Grotto has every move from stage 1.
 const CAVES := {  # configurable (whole table)
-	"old_mine": {"name": "Old Mine", "tile": "res://assets/wall/wall_tile.png", "ticket_price": TICKET_PRICE, "coins": 1.0, "fuel": 1.0, "stone_chance": 1.0, "head_start": 0},
-	"shale_hollow": {"name": "Shale Hollow", "tile": "res://assets/wall/shale_hollow.png", "ticket_price": 250, "coins": 1.4, "fuel": 0.95, "stone_chance": 1.8, "head_start": 1},
-	"crimson_deep": {"name": "Crimson Deep", "tile": "res://assets/wall/crimson_deep.png", "ticket_price": 600, "coins": 1.9, "fuel": 0.9, "stone_chance": 2.6, "head_start": 2},
-	"blackrock_tunnels": {"name": "Blackrock Tunnels", "tile": "res://assets/wall/blackrock_tunnels.png", "ticket_price": 1400, "coins": 2.6, "fuel": 0.85, "stone_chance": 3.4, "head_start": 3},
-	"magma_veins": {"name": "Magma Veins", "tile": "res://assets/wall/magma_veins.png", "ticket_price": 3000, "coins": 3.5, "fuel": 0.8, "stone_chance": 4.2, "head_start": 4},
-	"crystal_grotto": {"name": "Crystal Grotto", "tile": "res://assets/wall/crystal_grotto.png", "ticket_price": 6500, "coins": 4.75, "fuel": 0.75, "stone_chance": 5.0, "head_start": 5},
+	"old_mine": {"name": "Old Mine", "tile": "res://assets/wall/wall_tile.png", "ticket_price": TICKET_PRICE, "coins": 1.0, "fuel": 1.0, "stone_chance": 1.0, "tiers": [1, 1], "head_start": 0},
+	"shale_hollow": {"name": "Shale Hollow", "tile": "res://assets/wall/shale_hollow.png", "ticket_price": 250, "coins": 1.4, "fuel": 0.95, "stone_chance": 1.8, "tiers": [1, 2], "head_start": 1},
+	"crimson_deep": {"name": "Crimson Deep", "tile": "res://assets/wall/crimson_deep.png", "ticket_price": 600, "coins": 1.9, "fuel": 0.9, "stone_chance": 2.6, "tiers": [1, 3], "head_start": 2},
+	"blackrock_tunnels": {"name": "Blackrock Tunnels", "tile": "res://assets/wall/blackrock_tunnels.png", "ticket_price": 1400, "coins": 2.6, "fuel": 0.85, "stone_chance": 3.4, "tiers": [2, 4], "head_start": 3},
+	"magma_veins": {"name": "Magma Veins", "tile": "res://assets/wall/magma_veins.png", "ticket_price": 3000, "coins": 3.5, "fuel": 0.8, "stone_chance": 4.2, "tiers": [3, 5], "head_start": 4},
+	"crystal_grotto": {"name": "Crystal Grotto", "tile": "res://assets/wall/crystal_grotto.png", "ticket_price": 6500, "coins": 4.75, "fuel": 0.75, "stone_chance": 5.0, "tiers": [4, 5], "head_start": 5},
 }
-## Rocks found in caves: true = every rock type is as likely as any other; false = they follow shop_weight
-## (cheap rocks more often).
-const CAVE_STONE_ANY_EQUAL := true  # configurable
-## When a stage hits its stone_chance you find a pile of STAGE_ROCK_ROLLS rocks; each one has
-## STAGE_ROCK_KEEP % to survive the trip up, and you keep at most STAGE_ROCK_MAX: so 0-3 of the 5.
+## Rock TIERS: every rock sorted by price and cut into this many equal groups (tier 1 = the cheapest rocks).
+const ROCK_TIERS := 5  # configurable
+## The pile of rocks a cleared stage can find (the cave's stone_chance), and how it grows with the stage:
+##   chance  = stone_chance x (1 + STAGE_STONE_CHANCE_GROWTH x (stage - 1)), never above STAGE_STONE_CHANCE_MAX
+##   pile    = STAGE_ROCK_ROLLS rocks, +1 every STAGE_ROCK_ROLLS_EVERY stages; each has STAGE_ROCK_KEEP % to make it
+##   kept    = at most STAGE_ROCK_MAX, +1 every STAGE_ROCK_MAX_EVERY stages (stage 1: 0-3 of 5)
+##   tiers   = each rock is from the cave's tiers; higher stages lean to its higher tiers (STAGE_TIER_SHIFT)
+const STAGE_STONE_CHANCE_GROWTH := 0.15  # configurable
+const STAGE_STONE_CHANCE_MAX := 60.0  # configurable  (%)
 const STAGE_ROCK_ROLLS := 5  # configurable
+const STAGE_ROCK_ROLLS_EVERY := 3  # configurable
 const STAGE_ROCK_KEEP := 50.0  # configurable  (%)
 const STAGE_ROCK_MAX := 3  # configurable
+const STAGE_ROCK_MAX_EVERY := 4  # configurable
+const STAGE_TIER_SHIFT := 0.35  # configurable  (per stage: how much more the cave's higher tiers weigh)
 ## Upgrades. Level 1 gives "first", the last level gives exactly "max"; the levels in between follow a
 ## smooth curve (so each level of Miner's Favor adds a bit less than the one before).
 ##   name / text   shown in the shop ("text" says what the number is)
@@ -140,49 +147,46 @@ const FOOLS_GOLD_GEMS := true  # configurable  (false = Fool's Gold only works w
 # ------------------------------------------------------------------ ROCK TYPES
 ## id: also its name on the rocks texture (assets/rocks/rocks.png, packed by tools/slice_sheets.py)
 ##   name        shown in the game
-##   price       base shop price (coins)
-##   shop_weight how often it shows up in the shop compared to others (bigger = more common, 0 = never)
-##   hits_min / hits_max   (optional) override HITS_MIN / HITS_MAX for this rock
-##   rolls       how many times the drops are rolled when it breaks
-##   quality     0 - 1: where this rock sits between the cheapest (0) and the best (1) rocks. EVERY rock can
-##               drop EVERY ore and gem; quality slides each ore's chance between its two numbers in ORES
-##               ("chance": [cheapest, best]), so better rocks lean towards the valuable stuff.
-##   bonus       (optional) ore id -> chance multiplier: this rock's speciality (2.0 = twice as likely)
-##   drops       (optional, advanced) ore id -> {chance: %, min, max}: replaces that ore's chance and amount
-##               for this rock completely.
-## Every ore is rolled on its own each roll, so one rock can give several ores (or nothing).
-## tools/tune_drops.py can re-balance qualities so each rock is worth about its price.
+##   price         base shop price (coins): by the rock's size, 10 for the smallest up to 1000 for the biggest
+##   stock_chance  0 - 1: chance it's in stock at each restock (the pricier, the rarer)
+##   stock_max     most there can be in stock (1 - stock_max when it is)
+##   hits_min / hits_max   hits to break it
+##   rolls         how many times the drops are rolled when it breaks
+##   drops         the ONLY ores / gems this rock can give: ore id -> [% chance per roll, min, max]
+## Every ore in drops is rolled on its own each roll, so one rock can give several ores (or nothing).
+## tools/tune_drops.py writes this whole table: prices from the art's size, a few ores per rock, and chances
+## tuned so each rock pays back its price about half the time. Re-run it after changing ore prices.
 const ROCKS := {  # configurable (whole table)
-	"rock_02": {"name": "Pebble", "price": 8, "shop_weight": 40, "hits_min": 2, "hits_max": 3, "rolls": 1, "quality": 0.0},
-	"rock_10": {"name": "Round Stone", "price": 12, "shop_weight": 35, "rolls": 1, "quality": 0.05},
-	"rock_05": {"name": "Shard Rock", "price": 15, "shop_weight": 30, "rolls": 1, "quality": 0.11, "bonus": {"peridot": 2.0}},
-	"rock_04": {"name": "Lumpy Rock", "price": 18, "shop_weight": 28, "rolls": 1, "quality": 0.18, "bonus": {"jade": 1.5}},
-	"rock_06": {"name": "Knobby Rock", "price": 22, "shop_weight": 24, "rolls": 1, "quality": 0.27, "bonus": {"rhodonite": 2.0}},
-	"rock_07": {"name": "Crag", "price": 26, "shop_weight": 20, "rolls": 1, "quality": 0.35, "bonus": {"gold": 1.5, "topaz": 1.5}},
-	"rock_09": {"name": "Rubble Pile", "price": 30, "shop_weight": 18, "rolls": 2, "quality": 0.08, "bonus": {"lead": 1.5, "copper": 1.5}},
-	"rock_01": {"name": "Boulder", "price": 40, "shop_weight": 14, "hits_min": 4, "hits_max": 6, "rolls": 2, "quality": 0.23, "bonus": {"silver": 1.5}},
-	"rock_03": {"name": "Big Boulder", "price": 60, "shop_weight": 8, "hits_min": 5, "hits_max": 7, "rolls": 2, "quality": 0.45, "bonus": {"sapphire": 1.5, "ruby": 1.5}},
-	"rock_08": {"name": "Twin Stones", "price": 90, "shop_weight": 4, "hits_min": 5, "hits_max": 8, "rolls": 3, "quality": 0.42, "bonus": {"emerald": 3.0}},
-	"rock_14": {"name": "Cobblestone", "price": 10, "shop_weight": 36, "hits_min": 2, "hits_max": 4, "rolls": 1, "quality": 0.0, "bonus": {"zinc": 2.5}},
-	"rock_13": {"name": "Dome Rock", "price": 20, "shop_weight": 26, "rolls": 1, "quality": 0.17, "bonus": {"zinc": 2.0, "iron": 1.5}},
-	"rock_15": {"name": "Notched Rock", "price": 24, "shop_weight": 22, "rolls": 1, "quality": 0.3, "bonus": {"zinc": 1.5, "jade": 1.5}},
-	"rock_16": {"name": "Chipped Block", "price": 34, "shop_weight": 16, "rolls": 2, "quality": 0.15, "bonus": {"onyx": 2.0}},
-	"rock_12": {"name": "Tall Egg", "price": 45, "shop_weight": 12, "hits_min": 4, "hits_max": 6, "rolls": 2, "quality": 0.28, "bonus": {"uranium": 2.0}},
-	"rock_17": {"name": "Clump", "price": 50, "shop_weight": 11, "hits_min": 4, "hits_max": 6, "rolls": 2, "quality": 0.33, "bonus": {"uranium": 1.5, "zinc": 1.5}},
-	"rock_18": {"name": "Tower Rock", "price": 70, "shop_weight": 7, "hits_min": 5, "hits_max": 7, "rolls": 3, "quality": 0.29, "bonus": {"uranium": 2.0, "onyx": 1.5}},
-	"rock_19": {"name": "Saddle Rock", "price": 80, "shop_weight": 6, "hits_min": 5, "hits_max": 7, "rolls": 3, "quality": 0.36, "bonus": {"onyx": 2.0, "dreamstone": 1.5}},
-	"rock_11": {"name": "Egg Boulder", "price": 110, "shop_weight": 4, "hits_min": 6, "hits_max": 8, "rolls": 3, "quality": 0.59, "bonus": {"dreamstone": 2.0}},
-	"rock_21": {"name": "Split Boulder", "price": 55, "shop_weight": 10, "hits_min": 4, "hits_max": 6, "rolls": 2, "quality": 0.29, "bonus": {"veridium": 2.0}},
-	"rock_22": {"name": "Broken Knot", "price": 28, "shop_weight": 20, "rolls": 2, "quality": 0.07, "bonus": {"mudspec": 2.5, "polyphite": 1.5}},
-	"rock_23": {"name": "Slate Stack", "price": 32, "shop_weight": 18, "rolls": 1, "quality": 0.35, "bonus": {"polyphite": 2.0, "white_quartz": 1.5}},
-	"rock_24": {"name": "Anvil Rock", "price": 65, "shop_weight": 9, "hits_min": 5, "hits_max": 7, "rolls": 2, "quality": 0.36, "bonus": {"hellspec": 2.0}},
-	"rock_25": {"name": "Flatstone", "price": 14, "shop_weight": 34, "hits_min": 2, "hits_max": 4, "rolls": 1, "quality": 0.08, "bonus": {"mudspec": 2.0}},
-	"rock_26": {"name": "Knuckle Rock", "price": 38, "shop_weight": 15, "rolls": 2, "quality": 0.16, "bonus": {"rose_quartz": 2.0}},
-	"rock_27": {"name": "Moon Boulder", "price": 85, "shop_weight": 6, "hits_min": 5, "hits_max": 7, "rolls": 3, "quality": 0.3, "bonus": {"pearl": 2.0, "white_quartz": 1.5}},
-	"rock_28": {"name": "Bean Rock", "price": 24, "shop_weight": 22, "rolls": 1, "quality": 0.24, "bonus": {"tigers_eye": 2.0}},
-	"rock_29": {"name": "Spire", "price": 120, "shop_weight": 3, "hits_min": 6, "hits_max": 8, "rolls": 3, "quality": 0.47, "bonus": {"cryo_core": 2.0, "aquamarine": 1.5}},
-	"rock_30": {"name": "Twisted Rock", "price": 175, "shop_weight": 2, "hits_min": 7, "hits_max": 9, "rolls": 3, "quality": 0.74, "bonus": {"daevorium": 2.0, "hellspec": 1.5}},
-	"rock_20": {"name": "Wedge Rock", "price": 150, "shop_weight": 2, "hits_min": 7, "hits_max": 9, "rolls": 3, "quality": 0.83, "bonus": {"dreamstone": 2.0, "onyx": 1.5, "uranium": 1.5}},
+	"rock_02": {"name": "Pebble", "price": 10, "stock_chance": 0.9, "stock_max": 8, "hits_min": 2, "hits_max": 4, "rolls": 1, "drops": {"lead": [41.84, 1, 2], "mudspec": [35.0, 1, 3], "copper": [30.25, 1, 1], "iron": [24.03, 1, 2]}},
+	"rock_25": {"name": "Flatstone", "price": 25, "stock_chance": 0.53, "stock_max": 7, "hits_min": 3, "hits_max": 5, "rolls": 1, "drops": {"lead": [76.76, 1, 2], "iron": [44.09, 1, 2], "zinc": [34.17, 1, 2], "rustvein": [25.32, 1, 2], "jade": [15.31, 1, 1], "gold": [11.07, 1, 1]}},
+	"rock_29": {"name": "Spire", "price": 60, "stock_chance": 0.31, "stock_max": 5, "hits_min": 4, "hits_max": 6, "rolls": 2, "drops": {"polyphite": [37.27, 1, 2], "rhodonite": [32.94, 1, 1], "rustvein": [29.61, 1, 2], "veridium": [15.83, 1, 2], "tigers_eye": [7.43, 1, 1], "hellspec": [4.94, 1, 1]}},
+	"rock_05": {"name": "Shard Rock", "price": 65, "stock_chance": 0.3, "stock_max": 5, "hits_min": 4, "hits_max": 6, "rolls": 2, "drops": {"polyphite": [38.7, 1, 2], "stibnite": [22.23, 1, 2], "jade": [18.59, 1, 1], "veridium": [16.43, 1, 2], "white_quartz": [14.77, 1, 1]}},
+	"rock_28": {"name": "Bean Rock", "price": 70, "stock_chance": 0.29, "stock_max": 5, "hits_min": 4, "hits_max": 6, "rolls": 2, "drops": {"polyphite": [49.45, 1, 2], "rhodonite": [43.72, 1, 1], "rustvein": [39.29, 1, 2], "peridot": [13.65, 1, 1], "onyx": [9.07, 1, 1]}},
+	"rock_23": {"name": "Slate Stack", "price": 75, "stock_chance": 0.28, "stock_max": 5, "hits_min": 4, "hits_max": 6, "rolls": 2, "drops": {"rustvein": [36.68, 1, 2], "silver": [30.68, 1, 1], "veridium": [19.61, 1, 2], "gold": [16.04, 1, 1], "onyx": [8.47, 1, 1], "amethyst": [4.07, 1, 1]}},
+	"rock_14": {"name": "Cobblestone", "price": 95, "stock_chance": 0.24, "stock_max": 5, "hits_min": 4, "hits_max": 6, "rolls": 2, "drops": {"rhodonite": [52.28, 1, 1], "rustvein": [46.99, 1, 2], "gold": [20.54, 1, 1], "rose_quartz": [17.5, 1, 1], "lapis": [9.37, 1, 1], "aquamarine": [6.78, 1, 1]}},
+	"rock_22": {"name": "Broken Knot", "price": 95, "stock_chance": 0.24, "stock_max": 5, "hits_min": 4, "hits_max": 6, "rolls": 2, "drops": {"zinc": [55.56, 1, 2], "rustvein": [41.17, 1, 2], "veridium": [22.01, 1, 2], "cryo_core": [11.36, 1, 1], "lapis": [8.21, 1, 1], "sapphire": [4.57, 1, 1]}},
+	"rock_24": {"name": "Anvil Rock", "price": 110, "stock_chance": 0.22, "stock_max": 4, "hits_min": 4, "hits_max": 6, "rolls": 2, "drops": {"silver": [47.87, 1, 1], "jade": [34.61, 1, 1], "veridium": [30.59, 1, 2], "onyx": [13.21, 1, 1], "hellspec": [9.55, 1, 1]}},
+	"rock_15": {"name": "Notched Rock", "price": 130, "stock_chance": 0.2, "stock_max": 4, "hits_min": 4, "hits_max": 6, "rolls": 2, "drops": {"rustvein": [60.8, 1, 2], "veridium": [32.5, 1, 2], "rose_quartz": [22.64, 1, 1], "onyx": [14.03, 1, 1], "hellspec": [10.15, 1, 1]}},
+	"rock_07": {"name": "Crag", "price": 140, "stock_chance": 0.19, "stock_max": 4, "hits_min": 4, "hits_max": 6, "rolls": 2, "drops": {"rustvein": [65.27, 1, 2], "stibnite": [47.19, 1, 2], "jade": [39.48, 1, 1], "cryo_core": [18.01, 1, 1], "lapis": [13.02, 1, 1]}},
+	"rock_20": {"name": "Wedge Rock", "price": 140, "stock_chance": 0.19, "stock_max": 4, "hits_min": 4, "hits_max": 6, "rolls": 2, "drops": {"rustvein": [75.3, 1, 2], "silver": [62.99, 1, 1], "gold": [32.92, 1, 1], "tigers_eye": [18.91, 1, 1], "tourmaline": [9.98, 1, 1]}},
+	"rock_27": {"name": "Moon Boulder", "price": 150, "stock_chance": 0.18, "stock_max": 4, "hits_min": 4, "hits_max": 6, "rolls": 2, "drops": {"rustvein": [68.78, 1, 2], "stibnite": [49.73, 1, 2], "peridot": [23.89, 1, 1], "cryo_core": [18.98, 1, 1], "lapis": [13.72, 1, 1]}},
+	"rock_19": {"name": "Saddle Rock", "price": 160, "stock_chance": 0.18, "stock_max": 4, "hits_min": 4, "hits_max": 6, "rolls": 2, "drops": {"stibnite": [49.95, 1, 2], "white_quartz": [33.2, 1, 1], "peridot": [24.0, 1, 1], "hellspec": [11.53, 1, 1], "uranium": [9.16, 1, 1], "sapphire": [7.66, 1, 1]}},
+	"rock_06": {"name": "Knobby Rock", "price": 170, "stock_chance": 0.17, "stock_max": 4, "hits_min": 4, "hits_max": 6, "rolls": 2, "drops": {"silver": [65.96, 1, 1], "veridium": [42.15, 1, 2], "cryo_core": [21.76, 1, 1], "tourmaline": [10.45, 1, 1], "amethyst": [8.74, 1, 1], "pearl": [4.34, 1, 1]}},
+	"rock_26": {"name": "Knuckle Rock", "price": 170, "stock_chance": 0.17, "stock_max": 4, "hits_min": 4, "hits_max": 6, "rolls": 2, "drops": {"silver": [71.1, 1, 1], "gold": [37.17, 1, 1], "peridot": [29.52, 1, 1], "aquamarine": [12.26, 1, 1], "amethyst": [9.43, 1, 1], "daevorium": [6.47, 1, 1]}},
+	"rock_16": {"name": "Chipped Block", "price": 190, "stock_chance": 0.16, "stock_max": 4, "hits_min": 5, "hits_max": 7, "rolls": 2, "drops": {"veridium": [43.56, 1, 2], "white_quartz": [39.15, 1, 1], "tigers_eye": [20.46, 1, 1], "onyx": [18.81, 1, 1], "amethyst": [9.04, 1, 1], "emerald": [5.19, 1, 1]}},
+	"rock_08": {"name": "Twin Stones", "price": 250, "stock_chance": 0.14, "stock_max": 3, "hits_min": 5, "hits_max": 7, "rolls": 2, "drops": {"rose_quartz": [39.78, 1, 1], "peridot": [37.1, 1, 1], "lapis": [21.31, 1, 1], "aquamarine": [15.41, 1, 1], "ruby": [11.85, 1, 1], "emerald": [6.8, 1, 1]}},
+	"rock_04": {"name": "Lumpy Rock", "price": 250, "stock_chance": 0.14, "stock_max": 3, "hits_min": 5, "hits_max": 7, "rolls": 2, "drops": {"gold": [53.93, 1, 1], "cryo_core": [34.03, 1, 1], "tigers_eye": [30.97, 1, 1], "ruby": [13.68, 1, 1], "obsidian": [10.45, 1, 1]}},
+	"rock_30": {"name": "Twisted Rock", "price": 310, "stock_chance": 0.12, "stock_max": 3, "hits_min": 5, "hits_max": 7, "rolls": 3, "drops": {"rose_quartz": [30.18, 1, 1], "peridot": [28.15, 1, 1], "hellspec": [13.52, 1, 1], "tourmaline": [10.74, 1, 1], "sapphire": [8.99, 1, 1], "pearl": [4.46, 1, 1]}},
+	"rock_17": {"name": "Clump", "price": 340, "stock_chance": 0.11, "stock_max": 3, "hits_min": 5, "hits_max": 7, "rolls": 3, "drops": {"gold": [48.71, 1, 1], "rose_quartz": [41.49, 1, 1], "tigers_eye": [27.98, 1, 1], "uranium": [14.77, 1, 1], "daevorium": [8.48, 1, 1]}},
+	"rock_10": {"name": "Round Stone", "price": 400, "stock_chance": 0.1, "stock_max": 2, "hits_min": 5, "hits_max": 7, "rolls": 3, "drops": {"gold": [45.43, 1, 1], "onyx": [23.99, 1, 1], "hellspec": [17.34, 1, 1], "amethyst": [11.52, 1, 1], "topaz": [11.52, 1, 1], "zapperion": [5.37, 1, 1]}},
+	"rock_18": {"name": "Tower Rock", "price": 430, "stock_chance": 0.1, "stock_max": 2, "hits_min": 5, "hits_max": 7, "rolls": 3, "drops": {"lapis": [19.7, 1, 1], "tourmaline": [13.09, 1, 1], "uranium": [13.09, 1, 1], "sapphire": [10.95, 1, 1], "ruby": [10.95, 1, 1], "dreamstone": [3.61, 1, 1]}},
+	"rock_11": {"name": "Egg Boulder", "price": 440, "stock_chance": 0.1, "stock_max": 2, "hits_min": 5, "hits_max": 7, "rolls": 3, "drops": {"rose_quartz": [54.13, 1, 1], "cryo_core": [40.11, 1, 1], "lapis": [29.0, 1, 1], "obsidian": [12.32, 1, 1], "zapperion": [7.51, 1, 1]}},
+	"rock_01": {"name": "Boulder", "price": 500, "stock_chance": 0.09, "stock_max": 2, "hits_min": 5, "hits_max": 7, "rolls": 3, "drops": {"lapis": [22.82, 1, 1], "hellspec": [19.09, 1, 1], "amethyst": [12.68, 1, 1], "daevorium": [8.71, 1, 1], "emerald": [7.29, 1, 1], "dreamstone": [4.18, 1, 1]}},
+	"rock_12": {"name": "Tall Egg", "price": 600, "stock_chance": 0.08, "stock_max": 2, "hits_min": 6, "hits_max": 8, "rolls": 3, "drops": {"aquamarine": [18.96, 1, 1], "topaz": [14.58, 1, 1], "sapphire": [14.58, 1, 1], "daevorium": [10.01, 1, 1], "emerald": [8.37, 1, 1], "dreamstone": [4.81, 1, 1]}},
+	"rock_13": {"name": "Dome Rock", "price": 675, "stock_chance": 0.08, "stock_max": 2, "hits_min": 6, "hits_max": 8, "rolls": 3, "drops": {"tigers_eye": [43.71, 1, 1], "uranium": [23.08, 1, 1], "ruby": [19.3, 1, 1], "emerald": [11.09, 1, 1], "pearl": [9.58, 1, 1]}},
+	"rock_03": {"name": "Big Boulder", "price": 675, "stock_chance": 0.08, "stock_max": 2, "hits_min": 6, "hits_max": 8, "rolls": 3, "drops": {"tigers_eye": [47.23, 1, 1], "tourmaline": [24.93, 1, 1], "ruby": [20.86, 1, 1], "obsidian": [15.93, 1, 1], "dreamstone": [6.88, 1, 1]}},
+	"rock_21": {"name": "Split Boulder", "price": 925, "stock_chance": 0.06, "stock_max": 1, "hits_min": 6, "hits_max": 8, "rolls": 3, "drops": {"aquamarine": [33.84, 1, 1], "tourmaline": [31.1, 1, 1], "ruby": [26.02, 1, 1], "pearl": [12.92, 1, 1], "dreamstone": [8.58, 1, 1]}},
+	"rock_09": {"name": "Rubble Pile", "price": 1000, "stock_chance": 0.06, "stock_max": 1, "hits_min": 6, "hits_max": 8, "rolls": 3, "drops": {"hellspec": [40.08, 1, 1], "topaz": [26.64, 1, 1], "obsidian": [20.35, 1, 1], "zapperion": [12.4, 1, 1], "dreamstone": [8.79, 1, 1]}},
 }
 
 
@@ -193,44 +197,43 @@ const ROCKS := {  # configurable (whole table)
 ##   type        "ore" or "gem": Miner's Favor / Rocky Riches boost ores, Jeweler's Favor boosts gems
 ##   rare        true = sparkly sound + spin when it drops
 ##   color       used for the "+1 Ruby" pop-up text
-##   chance      [% per roll in the cheapest rocks, % per roll in the best rocks] (see "quality" above)
 ##   amount      [min, max] you get when it drops
 ## The order here is the order in the Backpack.
 const ORES := {  # configurable (whole table)
-	"lead": {"name": "Lead", "sell_price": 4, "type": "ore", "rare": false, "color": Color("#a99ab5"), "chance": [32.0, 10.0], "amount": [1, 2]},
-	"mudspec": {"name": "Mudspec", "sell_price": 5, "type": "ore", "rare": false, "color": Color("#b08a66"), "chance": [6.5, 1.6], "amount": [1, 3]},
-	"copper": {"name": "Copper", "sell_price": 6, "type": "ore", "rare": false, "color": Color("#e8925f"), "chance": [22.0, 12.0], "amount": [1, 1]},
-	"iron": {"name": "Iron", "sell_price": 8, "type": "ore", "rare": false, "color": Color("#dcc6ba"), "chance": [15.0, 15.0], "amount": [1, 2]},
-	"zinc": {"name": "Zinc", "sell_price": 11, "type": "ore", "rare": false, "color": Color("#8fd3c9"), "chance": [10.0, 14.0], "amount": [1, 2]},
-	"polyphite": {"name": "Polyphite", "sell_price": 12, "type": "ore", "rare": false, "color": Color("#b3b864"), "chance": [2.4, 3.2], "amount": [1, 2]},
-	"rhodonite": {"name": "Rhodonite", "sell_price": 14, "type": "gem", "rare": false, "color": Color("#ec85a6"), "chance": [4.0, 12.0], "amount": [1, 1]},
-	"rustvein": {"name": "Rustvein", "sell_price": 16, "type": "ore", "rare": false, "color": Color("#f57d4a"), "chance": [3.0, 13.0], "amount": [1, 2]},
-	"stibnite": {"name": "Stibnite", "sell_price": 24, "type": "ore", "rare": false, "color": Color("#c7dcd0"), "chance": [2.0, 12.0], "amount": [1, 2]},
-	"silver": {"name": "Silver", "sell_price": 20, "type": "ore", "rare": false, "color": Color("#dfe9ec"), "chance": [2.5, 16.0], "amount": [1, 1]},
-	"jade": {"name": "Jade", "sell_price": 30, "type": "gem", "rare": false, "color": Color("#62cf9e"), "chance": [1.2, 11.0], "amount": [1, 1]},
-	"veridium": {"name": "Veridium", "sell_price": 35, "type": "ore", "rare": false, "color": Color("#4fd16b"), "chance": [0.4, 3.0], "amount": [1, 2]},
-	"white_quartz": {"name": "White Quartz", "sell_price": 40, "type": "gem", "rare": false, "color": Color("#e6eef0"), "chance": [0.27, 2.4], "amount": [1, 1]},
-	"gold": {"name": "Gold", "sell_price": 45, "type": "ore", "rare": false, "color": Color("#ffd84a"), "chance": [0.8, 12.0], "amount": [1, 1]},
-	"rose_quartz": {"name": "Rose Quartz", "sell_price": 55, "type": "gem", "rare": false, "color": Color("#f2a7c3"), "chance": [0.14, 1.6], "amount": [1, 1]},
-	"peridot": {"name": "Peridot", "sell_price": 60, "type": "gem", "rare": true, "color": Color("#aee35c"), "chance": [0.2, 4.0], "amount": [1, 1]},
-	"cryo_core": {"name": "Cryo-core", "sell_price": 80, "type": "ore", "rare": true, "color": Color("#9eeaff"), "chance": [0.05, 1.1], "amount": [1, 1]},
-	"tigers_eye": {"name": "Tiger's Eye", "sell_price": 90, "type": "gem", "rare": true, "color": Color("#e0913a"), "chance": [0.07, 1.1], "amount": [1, 1]},
-	"lapis": {"name": "Lapis", "sell_price": 120, "type": "gem", "rare": true, "color": Color("#4d9be6"), "chance": [0.1, 3.0], "amount": [1, 1]},
-	"hellspec": {"name": "Hellspec", "sell_price": 150, "type": "ore", "rare": true, "color": Color("#e0503c"), "chance": [0.027, 0.8], "amount": [1, 1]},
-	"aquamarine": {"name": "Aquamarine", "sell_price": 180, "type": "gem", "rare": true, "color": Color("#6fe3dc"), "chance": [0.02, 0.7], "amount": [1, 1]},
-	"topaz": {"name": "Topaz", "sell_price": 250, "type": "gem", "rare": true, "color": Color("#ffb347"), "chance": [0.12, 3.5], "amount": [1, 1]},
-	"uranium": {"name": "Uranium", "sell_price": 200, "type": "ore", "rare": true, "color": Color("#6cff5a"), "chance": [0.08, 3.0], "amount": [1, 1]},
-	"amethyst": {"name": "Amethyst", "sell_price": 250, "type": "gem", "rare": true, "color": Color("#c690e6"), "chance": [0.08, 3.0], "amount": [1, 1]},
-	"sapphire": {"name": "Sapphire", "sell_price": 250, "type": "gem", "rare": true , "color": Color("#6a98ff"), "chance": [0.05, 2.5], "amount": [1, 1]},
-	"tourmaline": {"name": "Tourmaline", "sell_price": 200, "type": "gem", "rare": true, "color": Color("#ff8aa5"), "chance": [0.05, 2.2], "amount": [1, 1]},
-	"ruby": {"name": "Ruby", "sell_price": 250, "type": "gem", "rare": true, "color": Color("#ff4a5e"), "chance": [0.04, 2.0], "amount": [1, 1]},
-	"onyx": {"name": "Onyx", "sell_price": 100, "type": "gem", "rare": true, "color": Color("#b9b3cf"), "chance": [0.03, 1.8], "amount": [1, 1]},
-	"obsidian": {"name": "Obsidian", "sell_price": 350, "type": "gem", "rare": true, "color": Color("#ae97ae"), "chance": [0.03, 1.6], "amount": [1, 1]},
-	"daevorium": {"name": "Daevorium", "sell_price": 400, "type": "ore", "rare": true, "color": Color("#ff3d6b"), "chance": [0.008, 0.4], "amount": [1, 1]},
-	"emerald": {"name": "Emerald", "sell_price": 500, "type": "gem", "rare": true, "color": Color("#45e3c4"), "chance": [0.025, 1.5], "amount": [1, 1]},
-	"pearl": {"name": "Pearl", "sell_price": 600, "type": "gem", "rare": true, "color": Color("#f6f2ec"), "chance": [0.005, 0.35], "amount": [1, 1]},
-	"zapperion": {"name": "Zapperion", "sell_price": 650, "type": "gem", "rare": true, "color": Color("#e2e679"), "chance": [0.02, 1.4], "amount": [1, 1]},
-	"dreamstone": {"name": "Dreamstone", "sell_price": 1000, "type": "gem", "rare": true, "color": Color("#d9a6ff"), "chance": [0.015, 1.2], "amount": [1, 1]},
+	"lead": {"name": "Lead", "sell_price": 4, "type": "ore", "rare": false, "color": Color("#a99ab5"), "amount": [1, 2]},
+	"mudspec": {"name": "Mudspec", "sell_price": 5, "type": "ore", "rare": false, "color": Color("#b08a66"), "amount": [1, 3]},
+	"copper": {"name": "Copper", "sell_price": 6, "type": "ore", "rare": false, "color": Color("#e8925f"), "amount": [1, 1]},
+	"iron": {"name": "Iron", "sell_price": 8, "type": "ore", "rare": false, "color": Color("#dcc6ba"), "amount": [1, 2]},
+	"zinc": {"name": "Zinc", "sell_price": 11, "type": "ore", "rare": false, "color": Color("#8fd3c9"), "amount": [1, 2]},
+	"polyphite": {"name": "Polyphite", "sell_price": 12, "type": "ore", "rare": false, "color": Color("#b3b864"), "amount": [1, 2]},
+	"rhodonite": {"name": "Rhodonite", "sell_price": 14, "type": "gem", "rare": false, "color": Color("#ec85a6"), "amount": [1, 1]},
+	"rustvein": {"name": "Rustvein", "sell_price": 16, "type": "ore", "rare": false, "color": Color("#f57d4a"), "amount": [1, 2]},
+	"stibnite": {"name": "Stibnite", "sell_price": 24, "type": "ore", "rare": false, "color": Color("#c7dcd0"), "amount": [1, 2]},
+	"silver": {"name": "Silver", "sell_price": 20, "type": "ore", "rare": false, "color": Color("#dfe9ec"), "amount": [1, 1]},
+	"jade": {"name": "Jade", "sell_price": 30, "type": "gem", "rare": false, "color": Color("#62cf9e"), "amount": [1, 1]},
+	"veridium": {"name": "Veridium", "sell_price": 35, "type": "ore", "rare": false, "color": Color("#4fd16b"), "amount": [1, 2]},
+	"white_quartz": {"name": "White Quartz", "sell_price": 40, "type": "gem", "rare": false, "color": Color("#e6eef0"), "amount": [1, 1]},
+	"gold": {"name": "Gold", "sell_price": 45, "type": "ore", "rare": false, "color": Color("#ffd84a"), "amount": [1, 1]},
+	"rose_quartz": {"name": "Rose Quartz", "sell_price": 55, "type": "gem", "rare": false, "color": Color("#f2a7c3"), "amount": [1, 1]},
+	"peridot": {"name": "Peridot", "sell_price": 60, "type": "gem", "rare": true, "color": Color("#aee35c"), "amount": [1, 1]},
+	"cryo_core": {"name": "Cryo-core", "sell_price": 80, "type": "ore", "rare": true, "color": Color("#9eeaff"), "amount": [1, 1]},
+	"tigers_eye": {"name": "Tiger's Eye", "sell_price": 90, "type": "gem", "rare": true, "color": Color("#e0913a"), "amount": [1, 1]},
+	"lapis": {"name": "Lapis", "sell_price": 120, "type": "gem", "rare": true, "color": Color("#4d9be6"), "amount": [1, 1]},
+	"hellspec": {"name": "Hellspec", "sell_price": 150, "type": "ore", "rare": true, "color": Color("#e0503c"), "amount": [1, 1]},
+	"aquamarine": {"name": "Aquamarine", "sell_price": 180, "type": "gem", "rare": true, "color": Color("#6fe3dc"), "amount": [1, 1]},
+	"topaz": {"name": "Topaz", "sell_price": 250, "type": "gem", "rare": true, "color": Color("#ffb347"), "amount": [1, 1]},
+	"uranium": {"name": "Uranium", "sell_price": 200, "type": "ore", "rare": true, "color": Color("#6cff5a"), "amount": [1, 1]},
+	"amethyst": {"name": "Amethyst", "sell_price": 250, "type": "gem", "rare": true, "color": Color("#c690e6"), "amount": [1, 1]},
+	"sapphire": {"name": "Sapphire", "sell_price": 250, "type": "gem", "rare": true , "color": Color("#6a98ff"), "amount": [1, 1]},
+	"tourmaline": {"name": "Tourmaline", "sell_price": 200, "type": "gem", "rare": true, "color": Color("#ff8aa5"), "amount": [1, 1]},
+	"ruby": {"name": "Ruby", "sell_price": 250, "type": "gem", "rare": true, "color": Color("#ff4a5e"), "amount": [1, 1]},
+	"onyx": {"name": "Onyx", "sell_price": 100, "type": "gem", "rare": true, "color": Color("#b9b3cf"), "amount": [1, 1]},
+	"obsidian": {"name": "Obsidian", "sell_price": 350, "type": "gem", "rare": true, "color": Color("#ae97ae"), "amount": [1, 1]},
+	"daevorium": {"name": "Daevorium", "sell_price": 400, "type": "ore", "rare": true, "color": Color("#ff3d6b"), "amount": [1, 1]},
+	"emerald": {"name": "Emerald", "sell_price": 500, "type": "gem", "rare": true, "color": Color("#45e3c4"), "amount": [1, 1]},
+	"pearl": {"name": "Pearl", "sell_price": 600, "type": "gem", "rare": true, "color": Color("#f6f2ec"), "amount": [1, 1]},
+	"zapperion": {"name": "Zapperion", "sell_price": 650, "type": "gem", "rare": true, "color": Color("#e2e679"), "amount": [1, 1]},
+	"dreamstone": {"name": "Dreamstone", "sell_price": 1000, "type": "gem", "rare": true, "color": Color("#d9a6ff"), "amount": [1, 1]},
 }
 
 
@@ -271,6 +274,180 @@ const ORE_LORE := {  # configurable
 	"aquamarine": "Sea-blue beryl. Sailors say it keeps you calm in a storm; miners say it keeps the water out.",
 	"pearl": "A perfect white pearl, somehow grown in stone. Nobody can explain it, and everybody wants one.",
 }
+
+
+# ------------------------------------------------------------------ RUN ITEMS  (the roguelike part)
+## ARTIFACTS. A RUN is one trip down a cave (one ticket, until you run out of lives or cash out - leaving the mine
+## with Back cashes out too, and that cave starts again from stage 1). Everything a run gives you (coins, ores,
+## rocks) is AT STAKE until you cash out: lose the run and it's all taken back (Minecart / Backpack save some). Every time you clear a stage you're
+## offered ITEM_CHOICES random artifacts at the rest: take one (or skip). You hold ITEM_SLOTS at once; when
+## they're full, taking a new one swaps out one you have. They only last for that run. Their ORDER matters
+## (Copy copies the one on its right, Catto the one on its left).
+const ITEM_SLOTS := 4  # configurable
+const ITEM_CHOICES := 3  # configurable
+## id -> name, text (shown on the card), once (true = used up after it does its thing)
+##   book: (optional) a longer text for the Artifact Book only (the offers and tooltips use the short "text")
+const ITEMS := {  # configurable (names & texts)
+	"torch": {"name": "Torch", "once": true,
+		"text": "No flicking for a whole stage: the light looks after itself. Burns out when the stage ends."},
+	"stronger_fluids": {"name": "Stronger Fluids",
+		"text": "Three good flicks light the lighter to full blaze."},
+	"extra_wick": {"name": "Extra Wick",
+		"text": "A second wick that burns first: your light stays put until it's gone, then the normal wick takes over."},
+	"defibrillator": {"name": "Defibrillator", "once": true,
+		"text": "Run out of lives and you're revived with 3 lives on the same stage. One use."},
+	"midas_touch": {"name": "Midas Touch",
+		"text": "Coins x (cave x MIDAS + combo). MIDAS grows: +0.25 every 3 moves, +1 a wall, +3 a stage (max 250x). Coins go in a pot: cash out at a rest, or lose it all if the run ends."},
+	"beginners_luck": {"name": "Beginner's Luck",
+		"text": "Every move is slower and more forgiving, with bigger targets."},
+	"dynamite": {"name": "Dynamite",
+		"text": "Press D (or the button) to blow straight through the wall - even with your lighter out. 2 charges, +1 every stage."},
+	"dwarven_hands": {"name": "Dwarven Hands",
+		"text": "Every move you finish can shake loose an ore or gem: rarer on higher stages, more of them the more walls you break."},
+	"greed": {"name": "Greed",
+		"text": "Does absolutely nothing. (Rumour says it pairs with Is Good.)"},
+	"is_good": {"name": "Is Good",
+		"text": "Does absolutely nothing. (Rumour says it pairs with Greed.)"},
+	"ladder": {"name": "Ladder", "once": true,
+		"text": "Run out of lives and you just climb back one stage - the run goes on. One use."},
+	"hard_as_nails": {"name": "Hard as Nails",
+		"text": "Flooding the lighter has a 50% chance to cost you nothing."},
+	"adrenaline_shot": {"name": "Adrenaline Shot",
+		"text": "Every time you'd lose a life: 50/50 that you don't."},
+	"little_light": {"name": "Little Light",
+		"text": "A tiny flame flicks your lighter for you, right in the gold zone. But mess up ANY move and it burns your hand: you drop the lighter and the run is OVER."},
+	"cats_eyes": {"name": "Cat's Eyes",
+		"text": "You see the whole wall in the dark: no flicking, the lighter's useless. But every move you mess up, the cat plays with your wick: -25% of it. Run out of wick and you lose a life."},
+	"copy": {"name": "Copy",
+		"text": "Copies the artifact on its RIGHT: that one counts twice. (Not Catto.)"},
+	"catto": {"name": "Catto",
+		"text": "Swats the artifact on its LEFT so it works twice as hard: that one counts twice. (Not Copy.)"},
+	"drunk": {"name": "Drunk",
+		"text": "The lighter's gold zone is bigger and your wick lasts longer... but every move gets harder."},
+	"ring_of_luck": {"name": "Ring of Luck",
+		"text": "1 in 4 moves you finish digs up a random rock (any rock in the game)."},
+	"hand_drill": {"name": "Drill",
+		"text": "1 in 8 moves you finish digs up a random rock."},
+	"excavator": {"name": "Excavator",
+		"text": "1 in 2 moves you finish digs up a random rock."},
+	"miners_permit": {"name": "Miner's Permit",
+		"text": "EVERY move you finish digs up a random rock."},
+	"deaths_gambit": {"name": "Death's Gambit",
+		"text": "Everything is twice as hard - but EVERYTHING pays x10: coins, ores, rocks, artifacts."},
+	"mushroom_of_might": {"name": "Mushroom of Might",
+		"text": "Stages only need 2-3 walls instead of 3-5."},
+	"wall_breaker": {"name": "Wall Breaker",
+		"text": "Every stage needs 2 fewer walls (never less than 1)."},
+	"gilded_umbrella": {"name": "Gilded Umbrella",
+		"text": "Gems fall from the cave roof: some break, the rest are yours. 1 in 4 hit you and knock your lighter out of your hand: click it within 3 s and relight it, or the run is OVER."},
+	"molerats": {"name": "Molerats",
+		"text": "They eat every rock you'd find - and pay you 1.5x what each one is worth."},
+	"draupnir": {"name": "Draupnir", "stack": 2,
+		"text": "x2.5 coins. Every wall I make another of me (2 share a slot). Sell me for 500 at a rest - if I've no room left, I knock your lighter out of your hand!"},
+	"diamond_pick": {"name": "Diamond Pick",
+		"text": "Only Slash and Tap moves show up - every other move is gone."},
+	"familiar_circle": {"name": "Familiar Circle",
+		"text": "Only the rhythm moves: circles, the moving circle and spinners. WARNING: HARD. x20 coins."},
+	"dice_of_dwarves": {"name": "Dice of Dwarves",
+		"text": "Rolls 2 dice every stage - good or very bad (every roll is in the Artifact Book). Your lighter going out costs a life: no relighting.",
+		"book": "Rolls 2 dice every stage you clear:\n  2   every rock in the game!\n  3-4   walls need half the moves next stage\n  5-6   a free Extra Wick next stage\n  7-8   a random rock\n  9-10   1-100 coins\n  11   skip a stage\n  12   the run is OVER\nWhile you hold it, your lighter going out costs a life straight away - no relighting."},
+	"coin_of_deceit": {"name": "Coin of Deceit",
+		"text": "At any rest, flip it: heads doubles the coins you've earned this run, tails loses them. As often as you dare."},
+	"ram": {"name": "Ram", "once": true,
+		"text": "Press R (or the button) to ram through 3 walls at once. 2 uses, then it's gone."},
+	"golden_apple": {"name": "Golden Apple",
+		"text": "x2.5 coins."},
+	"standard_gloves": {"name": "Standard Gloves",
+		"text": "Your lighter gives 20% more light: flicks add more and it lasts longer."},
+	"art_of_peace": {"name": "Art of Peace",
+		"text": "No screen shaking, flashing or red edges bother you. x2 coins."},
+	"philosophers_stone": {"name": "Philosopher's Stone",
+		"text": "Every move you finish turns into Pebbles: as many as your combo, up to 10."},
+	"hot_hands": {"name": "Hot Hands",
+		"text": "Every stage you clear doubles ALL your rewards - and makes the mine 50% harder. Forever."},
+	"minecart": {"name": "Minecart",
+		"text": "Lose the run and you still take home 25% of its loot (coins, ores, rocks)."},
+	"backpack": {"name": "Backpack",
+		"text": "Lose the run and you still take home 30% of its loot (coins, ores, rocks)."},
+	"great_ham": {"name": "Great Ham", "once": true,
+		"text": "Press H (or the button) to eat it: +2 lives (never above your stage's lives)."},
+	"fireflies": {"name": "Fireflies",
+		"text": "1 in 7 moves, the fireflies finish it for you."},
+	"miners_hat": {"name": "Miner's Hat",
+		"text": "A lamp on your head lights up the wall around your cursor, even in the dark. (You still need to flick the lighter.)"},
+	"mandrake": {"name": "Mandrake",
+		"text": "SCREAMS every time it gets darker. Annoying - but +20% coins and rocks."},
+	"spike_boots": {"name": "Spike Boots",
+		"text": "Every move you finish counts twice: walls come down in half the moves."},
+	"rapid_fire": {"name": "Rapid Fire",
+		"text": "Everything in the mine runs 3x faster. Every reward x3."},
+	"pet_rock": {"name": "Pet Rock",
+		"text": "At a rest, feed it 1000 coins' worth of rocks from your bag for +1 life. After 3 feeds it wanders off."},
+}
+## Used-up artifacts (once: true, and Ram / Pet Rock once they're spent) aren't offered again for CONSUMABLE_COOLDOWN
+## stages, unless you pay CONSUMABLE_UNLOCK_COST of the coins you've earned this run (at a rest) to bring them back.
+const CONSUMABLE_COOLDOWN := 5  # configurable  (stages)
+const CONSUMABLE_UNLOCK_COST := 0.5  # configurable  (part of this run's coins)
+## An artifact you swap out (slots full, you take a new one in its place) isn't offered again for this many
+## stages. Paying to bring used-up ones back doesn't bring these back.
+const SWAP_COOLDOWN := 5  # configurable  (stages)
+const CATS_EYES_MISS_WICK := 0.25  # configurable  (part of the whole wick each messed-up move burns: 0.25 = 4 in a row and it's gone)
+const PHILOSOPHERS_MAX := 10  # configurable  (most Pebbles one move can give, in all - extra stones and reward multipliers don't raise it)
+const HOT_HANDS_REWARD := 2.0  # configurable  (rewards x this for every stage cleared while you hold it)
+const HOT_HANDS_HARDER := 1.5  # configurable  (the mine x this much harder for every stage cleared: faster light / wick, stricter moves)
+const MINECART_KEEP := 0.25  # configurable  (part of the run's loot you keep if the run is lost)
+const BACKPACK_KEEP := 0.30  # configurable
+const GREAT_HAM_LIVES := 2.0  # configurable
+const GREAT_HAM_KEY := KEY_H  # configurable
+const FIREFLIES_CHANCE := 100.0 / 7.0  # configurable  (% of moves they finish for you)
+const MINERS_HAT_RADIUS := 170.0  # configurable  (px of light around your cursor)
+const MANDRAKE_BONUS := 1.2  # configurable  (coins and rocks x this)
+const SPIKE_BOOTS_COUNT := 2  # configurable  (each finished move counts this many times)
+const RAPID_FIRE_SPEED := 3.0  # configurable  (the mine runs this many times faster)
+const RAPID_FIRE_REWARD := 3.0  # configurable
+const PET_ROCK_PRICE := 1000  # configurable  (coins' worth of rocks (at today's shop prices) for one life)
+const PET_ROCK_FEEDS := 3  # configurable  (then it's gone)
+## Dice of Dwarves: what a 9-10 pays (random coins, x rewards)
+const DICE_COINS := Vector2i(1, 100)  # configurable
+const DRUNK_FLICK_ZONE := 1.6  # configurable  (the FLICK bar's gold zone this much bigger)
+const DRUNK_WICK := 1.5  # configurable  (wick lasts this much longer)
+const DRUNK_HARDER := 0.8  # configurable  (moves: tolerances / time x this)
+const ROCK_ARTIFACTS := {"ring_of_luck": 25.0, "hand_drill": 12.5, "excavator": 50.0, "miners_permit": 100.0}  # configurable  (% per move)
+const GAMBIT_HARDER := 2.0  # configurable  (Death's Gambit: light and wick burn this many times faster, moves this much stricter)
+const GAMBIT_REWARD := 10.0  # configurable
+const MUSHROOM_WALLS := Vector2i(2, 3)  # configurable
+const WALL_BREAKER_WALLS := 2  # configurable  (Wall Breaker: walls each stage needs, minus this - never below 1)
+const UMBRELLA_EVERY := Vector2(5.0, 9.0)  # configurable  (seconds between falling gems)
+const UMBRELLA_HIT_CHANCE := 25.0  # configurable  (%)
+const UMBRELLA_BREAK_CHANCE := 50.0  # configurable  (% a gem that misses you shatters)
+const DROPPED_LIGHTER_TIME := 3.0  # configurable  (seconds to pick your lighter back up)
+const MOLERATS_PAY := 1.5  # configurable
+const DRAUPNIR_SELL := 500  # configurable
+const DRAUPNIR_COINS := 2.5  # configurable  (x coins while you hold any Draupnir)
+const DIAMOND_PICK_MOVES := ["slash", "tap"]  # configurable
+const FAMILIAR_MOVES := ["tap", "track", "spin"]  # configurable
+const FAMILIAR_COINS := 20.0  # configurable
+const FAMILIAR_HARDER := 0.75  # configurable
+const RAM_USES := 2  # configurable
+const RAM_WALLS := 3  # configurable
+const RAM_KEY := KEY_R  # configurable
+const GOLDEN_APPLE_COINS := 2.5  # configurable
+const STANDARD_GLOVES_LIGHT := 1.2  # configurable
+const ART_OF_PEACE_COINS := 2.0  # configurable
+## Greed + Is Good in the same run: both vanish and you get one more item slot for the rest of the run
+## (and they stop showing up).
+const GREED_IS_GOOD_SLOTS := 1  # configurable
+const MIDAS_MAX := 250.0  # configurable
+const MIDAS_PER_3_MOVES := 0.25  # configurable
+const MIDAS_PER_WALL := 1.0  # configurable
+const MIDAS_PER_STAGE := 3.0  # configurable
+const DYNAMITE_MAX := 2  # configurable
+const DYNAMITE_KEY := KEY_D  # configurable
+const HARD_AS_NAILS_CHANCE := 50.0  # configurable  (%)
+const ADRENALINE_CHANCE := 50.0  # configurable  (%)
+const STRONGER_FLUIDS_GAIN := 0.34  # configurable  (each good flick adds at least this much light: 0.34 = full in 3)
+const BEGINNERS_LUCK_EASE := 1.35  # configurable  (moves this much slower; hit areas and line tolerance this much bigger)
+const DWARVEN_HANDS_CHANCE := 60.0  # configurable  (% per finished move)
 
 
 # ------------------------------------------------------------------ MINING WALL  (left screen)
@@ -318,10 +495,15 @@ const NO_REPEAT_ACTION := true  # configurable  (true = never the same action tw
 
 # --- combo
 ## (Actions have no timer of their own any more: your lighter's light is the timer, see LIGHT_DURATION.)
-const COMBO_BONUS_PER_STEP := 0.25  # configurable  (each combo step adds +25% coins: x1, x1.25, x1.5 ...)
-const COMBO_MAX_MULTIPLIER := 5.0  # configurable  (coin multiplier never goes above this)
+const COMBO_BONUS_PER_STEP := 0.5  # configurable  (each combo step adds +50% coins: x1, x1.5, x2 ... x5.5 at combo 10)
+const COMBO_MAX_MULTIPLIER := 20.0  # configurable  (coin multiplier never goes above this: reached at combo 39)
+## Every COMBO_MILESTONE in a row (10, 20, 30...) pays a bonus: COMBO_MILESTONE_COINS x (combo / COMBO_MILESTONE),
+## times the mine's coin multipliers (cave, stage, Digging Expert, artifacts). Combo 10: 25, combo 20: 50 ...
+const COMBO_MILESTONE := 10  # configurable
+const COMBO_MILESTONE_COINS := 25  # configurable
 const COMBO_NEEDS_PERFECT := false  # configurable  (true = a non-perfect action also resets the combo)
-const MISS_BREAKS_COMBO := false  # configurable  (true = any miss resets the combo, not just the timer)
+const COMBO_LOST_PER_FAIL := 1  # configurable  (combo each fail - a miss, a mistimed flick, a flood - knocks off; the light dying still loses it all)
+const FLICK_FAIL_LOSES_COMBO := true  # configurable  (a mistimed flick (too soon / too late) or flooding the lighter costs combo too)
 
 # --- the lighter  (art in assets/lighter/, cut by tools/make_lighter.py)
 ## It's dark in the mine. You hold the lighter on the left like a torch. While it's lit the whole
@@ -344,29 +526,37 @@ const LIGHT_STEPS := 6  # configurable  (the light fades in this many visible st
 const RECHARGE_MIN := 3.0  # configurable  (% of light one flick adds back: random MIN..MAX - so you keep flicking)
 const RECHARGE_MAX := 5.0  # configurable
 const FLOOD_AT := 1.0  # configurable  (flicking during the steady full blaze floods it)
-## TIMED FLICKS: the FLICK bar next to the lighter charges up; a flick only adds light while the bar is
-## in its gold zone (near the top). Spam it (too soon) or wait too long (too late) and the flick fails:
-## no light, and it burns FLICK_FAIL_WICK_COST of your wick. Every minigame has its own tempo, so some
-## let you take your time (more light) and some are too fast to flick well (finish the action quickly).
-##   kind -> [seconds for the bar to fill, size of the gold zone (part of the bar)]   ("" = between actions)
-const FLICK_TEMPO := {  # configurable
-	"": [0.9, 0.24],
-	"tap": [0.5, 0.26],      # fast
-	"zigzag": [1.1, 0.22],   # steady
-	"slash": [0.36, 0.3],    # very fast
-	"drill": [0.65, 0.24],   # quick
-	"pry": [1.5, 0.18],      # slow, narrow zone
-	"track": [0.6, 0.24],    # quick
-	"swirl": [1.1, 0.22],    # steady
-	"bigslash": [0.36, 0.3], # very fast
-	"spin": [0.8, 0.26],     # keep spinning, flick with SPACE
-}
+## TIMED FLICKS: the FLICK bar next to the lighter fills once per HEARTBEAT; a flick only adds light while
+## the bar is in its gold zone (near the top). Spam it (too soon, or twice in one beat) or wait too long
+## (too late) and the flick fails: no light, and it burns FLICK_FAIL_WICK_COST of your wick.
+## The beat is your miner's heart rate (beats per minute). It stays the same for a whole wall and only
+## changes when a wall breaks: the deeper the stage and the better you played the last wall, the faster
+## your heart races, from a resting heart up to a heart under stress.
+const HEART_REST_BPM := 60.0  # configurable  (a resting heart: the slowest the bar ever goes - 1 beat a second)
+const HEART_STRESS_BPM := 180.0  # configurable  (a heart under stress: the fastest it ever goes)
+const HEART_STAGE_BPM := 10.0  # configurable  (beats per minute each stage adds)
+const HEART_PERFORM_BPM := 10.0  # configurable  (played the last wall well (mostly PERFECT) = +this; sloppy / failing = -this)
+const HEART_BPM_STEP := 10.0  # configurable  (the heart rate only ever moves in steps of this: 60, 70, 80 ...; 0 = any number)
+const FLICK_ZONE_CALM := 0.22  # configurable  (size of the gold zone (part of the bar) at a resting heart ...)
+const FLICK_ZONE_STRESS := 0.32  # configurable  (... and at a heart under stress: a fast beat gets a bigger zone)
+const FLICK_BEAT_SHAKE := 3.0  # configurable  (px the FLICK bar jolts on every heartbeat, more at a racing heart; 0 = never)
+## After every wall (when you leave the break) the next wall drops in and the view zooms in on the FLICK
+## bar for BEAT_PRACTICE_TIME seconds so you can feel the new heartbeat (flicks don't count). The last
+## BEAT_COUNTDOWN of those seconds count down 3, 2, 1 with a screen flash each; after 1 the moves start.
+const BEAT_PRACTICE_TIME := 5.0  # configurable  (seconds in all, the countdown included; 0 = straight back to the game)
+const BEAT_PRACTICE_ZOOM := 2.2  # configurable  (how big the FLICK bar gets while you practise)
+const BEAT_PRACTICE_DIM := 0.3  # configurable  (how much the wall behind darkens while you practise; 0 = not at all)
+const BEAT_COUNTDOWN := 3  # configurable  (3, 2, 1; 0 = no countdown)
+const COUNTDOWN_FLASH := 0.35  # configurable  (how bright the screen flash on each number is; 0 = none)
+## DEEP FOCUS: this many PERFECT moves in a row turns your flame blue. Anything less than PERFECT (or any
+## fail: a miss, a mistimed flick, a flood) breaks the streak and the flame goes back to normal.
+const DEEP_FOCUS_PERFECTS := 5  # configurable
+const DEEP_FOCUS_COLOR := Color("#7fc8ff")  # configurable  (the "DEEP FOCUS!" text; the flame itself is your flame art turned blue)
 const FLICK_ZONE_END := 0.94  # configurable  (the gold zone ends here on the bar; above it is "too late")
 ## A slow bar means fewer flicks, so each good flick gives more light: hitting every flick brings the light
 ## back FLICK_GAIN times as fast as it fades, whatever the tempo (but never less than RECHARGE_MIN..MAX %).
 const FLICK_GAIN := 1.8  # configurable  (1.0 = perfect flicking only just keeps up; higher = easier)
 const FLICK_FAIL_WICK_COST := 0.06  # configurable  (wick a mistimed flick burns)
-const FLICK_STAGE_SPEEDUP := 0.5  # configurable  (0 = same tempo every stage, 1 = speeds up as much as the light fades)
 const FLICK_BAR_HEIGHT := 150.0  # configurable  (px)
 const FLICK_BAR_GAP := 20.0  # configurable  (px between the lighter and the bar)
 ## The WICK: the most light your flicks can bring back. While an action is waiting on you it burns
@@ -436,9 +626,9 @@ const STAGE_RELIGHT_EVERY := 2  # configurable  (one more good strike needed to 
 const STAGE_COIN_BONUS := 0.25  # configurable  (+25% coins from the wall for every stage above 1)
 
 # --- coins
-const PERFECT_COINS_MIN := 1  # configurable  (coins for a PERFECT action: random MIN..MAX, then x combo)
-const PERFECT_COINS_MAX := 3  # configurable
-const GOOD_COINS := 0  # configurable  (coins for an action that was finished but not perfect, x combo)
+const PERFECT_COINS_MIN := 3  # configurable  (coins for a PERFECT action: random MIN..MAX, then x combo)
+const PERFECT_COINS_MAX := 6  # configurable
+const GOOD_COINS := 1  # configurable  (coins for an action that was finished but not perfect, x combo)
 const WALL_BREAK_BONUS := 0  # configurable  (extra coins when the wall comes down)
 
 # --- tap  (closing circles: tap each circle right when its ring closes in on it)
@@ -590,6 +780,8 @@ const SOUNDS := {  # configurable
 	"life_lost": {"db": -4.0, "pitch_var": 0.0},  # didn't relight in time
 	"stage_up": {"db": -3.0, "pitch_var": 0.0},
 	"stage_down": {"db": -4.0, "pitch_var": 0.0},
+	"scream": {"db": -8.0, "pitch_var": 0.15},  # Mandrake: every time the light steps darker
+	"supernova": {"db": -2.0, "pitch_var": 0.0},  # Crush All: charge up, implode, boom (the boom is 1.75 s in)
 }
 ## Music: one track per screen (+ the Shop), they cross-fade when you switch.
 ## key -> {file: assets/audio/music/<file>.dat (your tracks, compressed + locked by tools/make_music.py)
@@ -626,6 +818,8 @@ const MUTED_TEXT := Color("#c4a982")  # configurable
 const ACCENT := Color("#ffc94a")  # configurable  (coins, highlights)
 const TEXT_OUTLINE_COLOR := Color("#1a0f08")  # configurable  (dark outline around all text)
 const TEXT_OUTLINE_SIZE := 4  # configurable  (0 = no outline)
+const GAME_OVER_COLOR := Color("#ff6a3d")  # configurable  ("YOU HAVE NO MORE FUEL")
+const GAME_OVER_DELAY := 1.2  # configurable  (seconds after the run is lost before the game over screen comes up)
 ## Drop shadow under all text (labels, buttons, the wall's texts) so it stands out.
 const TEXT_SHADOW_COLOR := Color(0.0, 0.0, 0.0, 0.6)  # configurable  (alpha 0 = no shadow)
 const TEXT_SHADOW_OFFSET := Vector2i(3, 3)  # configurable  (px right, px down)

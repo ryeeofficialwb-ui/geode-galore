@@ -32,6 +32,8 @@ signal flooded(stage_down: bool, at: Vector2)
 signal full_light   # the flame just reached full blaze (main flashes the screen)   # flicked a full lighter: half a life gone
 signal stage_up(stage: int, at: Vector2)
 signal action_started(kind: String)  # a new action is on the wall (the tips use it)
+signal dynamite_blown(at: Vector2)    # Dynamite blew the wall down
+signal item_popped(text: String, at: Vector2)  # a run item did something here (main shows the text)
 
 const SAMPLES := 48
 const STEP := 6.0               # px between checks while tracing (fast mouse moves are filled in)
@@ -67,6 +69,17 @@ var combo := 0
 var kind := ""                  # current action ("" = between actions)
 var rise := 1.0                 # new-wall drop-in animation 0..1 (tweened)
 var resting := false            # the break after a wall (or a stage) is done: everything waits for you
+var rest_ui_external := false   # main draws the break's panel (items, Midas cash-out) instead of us
+var rest_hold := false          # main: something must be picked first (SPACE / clicks don't end the break)
+var wick_extra := 0.0           # Extra Wick: the second wick, burns first (the light holds while it does)
+var _burn_pending := false      # Little Light: you messed up a move - it burns your hand next frame (run over)
+var _dark_step := -1            # Mandrake: the light's last visible step (it screams when it drops)
+var _drop_t := 0.0              # the lighter's on the floor: seconds left to pick it up
+var _drop_pos := Vector2.ZERO   # ... and where it lies
+var _dropped_run := false       # it was knocked out of your hand: not relighting in time ends the run
+var _gems: Array[Dictionary] = []  # Gilded Umbrella: gems falling from the roof
+var _gem_t := 6.0               # seconds until the next one falls
+var _torch_frames: Array[Texture2D] = []  # the Torch artifact's art (assets/torch/)
 var _rest_cleared := false      # ... and that wall cleared the stage
 
 # lighter
@@ -94,6 +107,21 @@ var _shake_off := Vector2.ZERO  # this frame's shake (jolts + trembling when you
 var _fm := 0.0                  # the FLICK charge bar: 0..1, fills at this minigame's tempo; flick in the gold zone
 var _fm_ok := 0.0               # flashes: a good flick / a mistimed one
 var _fm_bad := 0.0
+var _beat_used := false         # already flicked well on this heartbeat: another flick is "too soon"
+var _beat_kick := 0.0           # the FLICK bar's jolt on each heartbeat (decays)
+var bpm := 0.0                  # your heart rate: the FLICK bar fills once per beat. Only changes when a wall breaks
+var _wall_moves := 0            # how you played this wall (sets the next wall's heart rate)
+var _wall_perfects := 0
+var _wall_fails := 0
+var _beat_t := 0.0              # > 0: zoomed in on the FLICK bar after a wall, practising the new beat (the last
+                                #      BEAT_COUNTDOWN seconds count down 3, 2, 1 with a flash each)
+var _beat_flicking := true      # false: Torch / Cat's Eyes - no bar to practise, just the countdown
+var _count_flash := 0.0         # the screen flash on each number of the countdown
+var _zoom := 0.0                # 0..1: how far the view is zoomed in on the FLICK bar
+var _beat_hits := 0             # practice flicks on the beat / all practice flicks
+var _beat_tries := 0
+var perfect_streak := 0         # PERFECT moves in a row; DEEP_FOCUS_PERFECTS of them = Deep Focus (blue flame)
+var _flame_frames_blue: Array[Texture2D] = []
 var _meter := 0.0
 var _meter_dir := 1.0
 var _meter_speed := 1.0
@@ -184,6 +212,14 @@ func _ready() -> void:
 		if not ResourceLoader.exists(f):
 			break
 		_flame_frames.append(load(f))
+	for ft in _flame_frames:
+		_flame_frames_blue.append(_blue_flame(ft))
+	for i in 32:
+		var f := "res://assets/torch/torch_%d.png" % i
+		if not ResourceLoader.exists(f):
+			break
+		_torch_frames.append(load(f))
+	Game.lighter_knocked.connect(_drop_lighter)
 	_dark = ColorRect.new()
 	_dark.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var mat := ShaderMaterial.new()
@@ -274,16 +310,38 @@ func _free_point(r: Rect2, pad: float) -> Vector2:
 
 # ------------------------------------------------------------------ wall + actions
 func new_wall() -> void:
+	_beat_t = 0.0
+	_show_wall()
+	_start_wall()
+
+
+## The next wall drops in (no moves yet).
+func _show_wall() -> void:
 	_load_tile()
 	_falling = false
 	resting = false
+	_gen += 1
+	kind = ""
+	_reset_input()
 	_pieces.clear()
 	_marks.clear()
-	var extra := mini(floori((Game.skill_stage() - 1) * Config.WALL_ACTIONS_PER_STAGE), Config.WALL_ACTIONS_EXTRA_MAX)
-	actions_total = randi_range(Config.WALL_ACTIONS_MIN, Config.WALL_ACTIONS_MAX) + maxi(extra, 0)
-	actions_left = actions_total
+	_gems.clear()
+	if light_state == "dropped":  # (a new wall after the run ended with the lighter on the floor)
+		light_state = "off"
 	rise = 0.0
 	create_tween().tween_property(self, "rise", 1.0, 0.55).set_trans(Tween.TRANS_BOUNCE).set_ease(Tween.EASE_OUT)
+
+
+## The wall's moves start.
+func _start_wall() -> void:
+	_wall_moves = 0
+	_wall_perfects = 0
+	_wall_fails = 0
+	var extra := mini(floori((Game.skill_stage() - 1) * Config.WALL_ACTIONS_PER_STAGE), Config.WALL_ACTIONS_EXTRA_MAX)
+	actions_total = randi_range(Config.WALL_ACTIONS_MIN, Config.WALL_ACTIONS_MAX) + maxi(extra, 0)
+	if _run_on() and Game.half_walls():  # Dice of Dwarves 3-4: half the moves this stage
+		actions_total = maxi(1, ceili(actions_total / 2.0))
+	actions_left = actions_total
 	new_action()
 
 
@@ -291,7 +349,7 @@ func new_wall() -> void:
 ## "" = back to normal.
 func set_practice(k: String) -> void:
 	practice = k
-	if resting and k != "":
+	if (resting or in_beat_practice()) and k != "":
 		new_wall()  # the tutorial's tour wants to show something: skip the break
 	if _falling:
 		return
@@ -315,12 +373,13 @@ func begin_free_practice(k: String) -> void:
 		_saved = {
 			"combo": combo, "light": light, "wick": wick, "light_state": light_state, "hold": _hold,
 			"lid": _lid_target, "start_hits": start_hits, "actions_left": actions_left,
-			"marks": _marks.duplicate(), "rest": resting or _falling, "rest_cleared": _rest_cleared,
+			"marks": _marks.duplicate(), "rest": resting or _falling or in_beat_practice(), "rest_cleared": _rest_cleared,
 			"relight": [relight_need, relight_hits, relight_left, _meter, _meter_dir, _meter_speed, _zone_c, _zone_w],
 		}
 	free_practice = true
 	_falling = false
 	resting = false
+	_beat_t = 0.0
 	_pieces.clear()
 	rise = 1.0
 	combo = 0
@@ -363,6 +422,32 @@ func end_free_practice() -> void:
 	elif light_state == "lit":
 		new_action()
 	queue_redraw()
+
+
+## The run ended (cashed out, or over): a fresh wall with a closed lighter for the next run.
+func reset_run() -> void:
+	_gen += 1
+	resting = false
+	_beat_t = 0.0
+	perfect_streak = 0
+	_wall_moves = 0
+	_wall_perfects = 0
+	_wall_fails = 0
+	bpm = 0.0  # a new run starts from a calm heart (set by the first wall)
+	_falling = false
+	light_state = "off"
+	_lid_target = 0.0
+	_lid = 0.0
+	_glow = 0.0
+	start_hits = 0
+	combo = 0
+	wick = 1.0
+	wick_extra = 0.0
+	light = 1.0
+	_dropped_run = false
+	_burn_pending = false
+	if size.x >= 400:
+		new_wall()
 
 
 ## Light the lighter right away (no animation, no SPACE needed).
@@ -413,7 +498,28 @@ func new_action(force := "") -> void:
 			_setup_track(area)
 	if kind != "":
 		action_started.emit(kind)
+		_fireflies()
 	queue_redraw()
+
+
+## Fireflies: 1 in 7 moves (each Fireflies rolls) they finish it for you, a moment after it shows up.
+func _fireflies() -> void:
+	if not _run_on() or not Game.has_item("fireflies"):
+		return
+	var lucky := false
+	for k in Game.item_count("fireflies"):
+		lucky = lucky or randf() * 100.0 < Config.FIREFLIES_CHANCE
+	if not lucky:
+		return
+	var g := _gen
+	var k0 := kind
+	get_tree().create_timer(0.45).timeout.connect(func():
+		if g == _gen and kind == k0 and kind != "" and light_state == "lit" and not _falling and not resting and _run_on():
+			var at := _action_center()
+			for i in 3:
+				_spray(at + Vector2(randf_range(-40, 40), randf_range(-30, 30)), 4)
+			item_popped.emit("FIREFLIES!  They did that one for you", at + Vector2(0, -60))
+			_complete(true, at))
 
 
 ## Every pry is different: the gold zone sits anywhere on the gauge, the gauge starts anywhere round the
@@ -424,7 +530,7 @@ func _setup_pry() -> void:
 	_zone = Vector2(z, minf(z + randf_range(Config.PRY_ZONE_SIZE_MIN, Config.PRY_ZONE_SIZE_MAX), 0.97))
 	_pry_a0 = randf() * TAU if Config.PRY_RANDOM_START else -PI * 0.5
 	_pry_dir = -1.0 if randf() < Config.PRY_REVERSE_CHANCE else 1.0
-	_pry_time = Config.PRY_FILL_TIME * randf_range(Config.PRY_SPEED_MIN, Config.PRY_SPEED_MAX)
+	_pry_time = Config.PRY_FILL_TIME * randf_range(Config.PRY_SPEED_MIN, Config.PRY_SPEED_MAX) * _ease()
 	_pry_style = "steady"
 	var total := 0.0
 	for k in Config.PRY_STYLES:
@@ -460,8 +566,18 @@ func _pry_angle(f: float) -> float:
 func _pick_kind() -> String:
 	var pool := {}
 	var skill := Game.skill_stage()
+	# Diamond Pick / Familiar Circle: only their moves (unlocked or not); both = only the moves they share
+	var only: Array = []
+	if _run_on() and Game.has_item("diamond_pick"):
+		only = Config.DIAMOND_PICK_MOVES.duplicate()
+	if _run_on() and Game.has_item("familiar_circle"):
+		only = Config.FAMILIAR_MOVES.duplicate() if only.is_empty() else only.filter(func(k): return k in Config.FAMILIAR_MOVES)
+		if only.is_empty():
+			only = Config.FAMILIAR_MOVES.duplicate()
 	for k in Config.ACTION_WEIGHTS:
-		if KIND_INFO.has(k) and float(Config.ACTION_WEIGHTS[k]) > 0.0 and skill >= int(Config.ACTION_UNLOCK.get(k, 1)):
+		if not KIND_INFO.has(k) or float(Config.ACTION_WEIGHTS[k]) <= 0.0:
+			continue
+		if (only.is_empty() and skill >= int(Config.ACTION_UNLOCK.get(k, 1))) or k in only:
 			pool[k] = float(Config.ACTION_WEIGHTS[k])
 	if pool.is_empty():
 		return "tap"
@@ -680,7 +796,7 @@ func _track_pos_at(t: float) -> Vector2:
 
 ## Seconds you get to finish a spin (shorter on later stages / harder caves).
 func _spin_time() -> float:
-	return Config.SPIN_TIME * lerpf(1.0, Game.stage_fuel_factor(), 0.5)
+	return Config.SPIN_TIME * lerpf(1.0, Game.stage_fuel_factor(), 0.5) * _ease()
 
 
 func _densify(corners: PackedVector2Array) -> PackedVector2Array:
@@ -881,7 +997,14 @@ func _crack_line(a: Vector2, b: Vector2, width: int) -> PackedVector2Array:
 func _gui_input(event: InputEvent) -> void:
 	if resting:
 		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-			end_rest()
+			if not rest_hold:
+				end_rest()
+			accept_event()
+		return
+	if light_state == "dropped":  # the only thing that matters: picking your lighter back up
+		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+			if event.position.distance_to(_drop_pos) < 110.0:
+				_pick_up_lighter()
 			accept_event()
 		return
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
@@ -929,7 +1052,7 @@ func press(p: Vector2) -> void:
 			_spin_have = false
 			_spin_move(p)
 		"pry":
-			if p.distance_to(_spot) > Config.PRY_RADIUS:
+			if p.distance_to(_spot) > Config.PRY_RADIUS * _ease():
 				missed.emit("Hold on the wedge!", p)
 				return
 			_holding = true
@@ -960,7 +1083,7 @@ func _tap(p: Vector2) -> void:
 	var best := -1
 	for i in _targets.size():
 		var tg: Dictionary = _targets[i]
-		if tg.state != 0 or _tap_clock < tg.spawn or p.distance_to(tg.p) > Config.TAP_RADIUS:
+		if tg.state != 0 or _tap_clock < tg.spawn or p.distance_to(tg.p) > Config.TAP_RADIUS * _ease():
 			continue
 		if best < 0 or tg.hit_t < _targets[best].hit_t:
 			best = i
@@ -991,17 +1114,26 @@ func _tap(p: Vector2) -> void:
 func _burn_wick(amount: float) -> void:
 	if practice != "" or light_state != "lit":
 		return
+	if wick_extra > 0.0 and Game.trip_active:  # Extra Wick takes it first
+		wick_extra = maxf(wick_extra - amount, 0.0)
+		return
 	wick = maxf(wick - amount, 0.0)
 	light = minf(light, wick)
 
 
+## What a messed-up move burns off the wick. Cat's Eyes: the cat plays with it, CATS_EYES_MISS_WICK of it each.
+func _miss_cost(base: float) -> float:
+	if _cats_eyes():
+		return maxf(base, Config.CATS_EYES_MISS_WICK * Game.item_count("cats_eyes"))
+	return base
+
+
 func _tap_miss(tg: Dictionary, reason: String) -> void:
-	_burn_wick(Config.MISS_WICK_COST)
+	_burn_wick(_miss_cost(Config.MISS_WICK_COST))
 	tg.state = 2
 	_strays += 1
 	_miss_flash = 0.25
-	if Config.MISS_BREAKS_COMBO:
-		combo = 0
+	_note_fail()
 	missed.emit(reason, tg.p)
 	_check_tap_done()
 
@@ -1027,7 +1159,7 @@ func _pop(at: Vector2, text: String, col: Color) -> void:
 
 
 func _drill(p: Vector2) -> void:
-	if p.distance_to(_spot) > Config.DRILL_RADIUS:
+	if p.distance_to(_spot) > Config.DRILL_RADIUS * _ease():
 		_stray(p, "Same spot!")
 		return
 	_clicks += 1
@@ -1042,7 +1174,7 @@ func _drill(p: Vector2) -> void:
 
 ## The moving drill: click it wherever it is right now.
 func _track_click(p: Vector2) -> void:
-	if p.distance_to(_spot) > Config.TRACK_RADIUS:
+	if p.distance_to(_spot) > Config.TRACK_RADIUS * _ease():
 		_stray(p, "Missed it!", Config.TRACK_MISS_WICK_COST)
 		return
 	_clicks += 1
@@ -1125,27 +1257,228 @@ func drag(p: Vector2) -> void:
 
 ## How strict tracing this line is: (miss distance, line ahead that counts, perfect distance) in px.
 func _trace_cfg() -> Vector3:
+	var e := _ease()
 	match kind:
 		"slash":
-			return Vector3(Config.SLASH_OK_TOLERANCE, Config.SLASH_LOOKAHEAD, Config.SLASH_PERFECT_TOLERANCE)
+			return Vector3(Config.SLASH_OK_TOLERANCE, Config.SLASH_LOOKAHEAD, Config.SLASH_PERFECT_TOLERANCE) * e
 		"bigslash":
-			return Vector3(Config.BIGSLASH_OK_TOLERANCE, Config.BIGSLASH_LOOKAHEAD, Config.BIGSLASH_PERFECT_TOLERANCE)
+			return Vector3(Config.BIGSLASH_OK_TOLERANCE, Config.BIGSLASH_LOOKAHEAD, Config.BIGSLASH_PERFECT_TOLERANCE) * e
 		"swirl":
-			return Vector3(Config.SWIRL_OK_TOLERANCE, Config.SWIRL_LOOKAHEAD, Config.SWIRL_PERFECT_TOLERANCE)
-	return Vector3(Config.ZIGZAG_OK_TOLERANCE, Config.ZIGZAG_LOOKAHEAD, Config.ZIGZAG_PERFECT_TOLERANCE)
+			return Vector3(Config.SWIRL_OK_TOLERANCE, Config.SWIRL_LOOKAHEAD, Config.SWIRL_PERFECT_TOLERANCE) * e
+	return Vector3(Config.ZIGZAG_OK_TOLERANCE, Config.ZIGZAG_LOOKAHEAD, Config.ZIGZAG_PERFECT_TOLERANCE) * e
+
+
+## How forgiving the moves are (1 = normal): Beginner's Luck makes them slower / bigger / easier; Drunk,
+## Familiar Circle and Death's Gambit make them stricter.
+func _ease() -> float:
+	if not _run_on():
+		return 1.0
+	var e := pow(Config.BEGINNERS_LUCK_EASE, Game.item_count("beginners_luck"))
+	e *= pow(Config.DRUNK_HARDER, Game.item_count("drunk"))
+	e *= pow(Config.FAMILIAR_HARDER, Game.item_count("familiar_circle"))
+	e /= pow(Config.GAMBIT_HARDER, Game.item_count("deaths_gambit"))
+	e /= Game.hot_harder()  # Hot Hands
+	return clampf(e, 0.35, 3.0)
+
+
+## How long the wick lasts (x WICK_TIME): Beginner's Luck and Drunk longer, Death's Gambit and Hot Hands shorter.
+func _wick_mult() -> float:
+	if not _run_on():
+		return 1.0
+	var m := pow(Config.BEGINNERS_LUCK_EASE, Game.item_count("beginners_luck")) * pow(Config.DRUNK_WICK, Game.item_count("drunk"))
+	m /= pow(Config.GAMBIT_HARDER, Game.item_count("deaths_gambit")) * Game.hot_harder()
+	return m
+
+
+## How long the light lasts (x LIGHT_DURATION): Standard Gloves longer, Death's Gambit shorter.
+func _light_mult() -> float:
+	if not _run_on():
+		return 1.0
+	return pow(Config.STANDARD_GLOVES_LIGHT, Game.item_count("standard_gloves")) / (pow(Config.GAMBIT_HARDER, Game.item_count("deaths_gambit")) * Game.hot_harder())
+
+
+## Art of Peace: no screen shaking, flashing or red edges.
+func peaceful() -> bool:
+	return _run_on() and Game.has_item("art_of_peace")
+
+
+func _cats_eyes() -> bool:
+	return _run_on() and Game.has_item("cats_eyes")
+
+
+## Ram (R or main's button): crashes through RAM_WALLS walls at once (this one too). Returns true if it did.
+func use_ram() -> bool:
+	if not _run_on() or _falling or resting or rise < 1.0 or light_state == "dropped" or not Game.use_ram():
+		return false
+	_gen += 1
+	kind = ""
+	_reset_input()
+	if light_state == "out":
+		light_state = "lit"
+		_lid_target = 1.0
+		light = maxf(light, 0.6)
+	wick = 1.0
+	var mid := size * 0.5
+	for i in 8:
+		_spray(mid + Vector2(randf_range(-300, 300), randf_range(-180, 180)), 10)
+	_shake_l = 1.0
+	item_popped.emit("RAM!  %d walls down" % Config.RAM_WALLS, mid + Vector2(0, -80))
+	dynamite_blown.emit(mid)
+	_crumble()
+	return true
+
+
+## Knocked out of your hand (Gilded Umbrella's gem, an overflowing Draupnir): the lighter drops to the floor.
+## Click it within DROPPED_LIGHTER_TIME, then relight it in time - or the run is over.
+func _drop_lighter(text: String) -> void:
+	if not _run_on() or _falling or resting or light_state == "dropped":
+		return
+	_gen += 1
+	kind = ""
+	_reset_input()
+	light_state = "dropped"
+	_lid_target = 0.0
+	_drop_t = Config.DROPPED_LIGHTER_TIME
+	_drop_pos = Vector2(randf_range(size.x * 0.3, size.x * 0.6), size.y - 190.0)
+	_shake_l = 1.0
+	Sfx.play("misfire")
+	item_popped.emit(text, _drop_pos + Vector2(0, -120))
+
+
+func _pick_up_lighter() -> void:
+	Sfx.play("lid")
+	_dropped_run = true  # now relight it in time, or the run's over
+	_go_out()
+
+
+## Gilded Umbrella: a gem drops from the roof every UMBRELLA_EVERY seconds.
+func _spawn_gem() -> void:
+	var gems: Array = Config.ORES.keys().filter(func(o): return Game.is_gem(o))
+	var w := {}
+	for g in gems:
+		w[g] = 1.0 / float(Config.ORES[g].sell_price)
+	var hit := randf() * 100.0 < Config.UMBRELLA_HIT_CHANCE
+	var x := _flame_pos().x if hit else randf_range(size.x * 0.25, size.x * 0.85)
+	_gems.append({"id": Game._weighted_pick(w), "p": Vector2(x, -30), "v": 0.0, "hit": hit, "spin": randf() * TAU})
+
+
+## Falling gems land: one aimed at you knocks the lighter out of your hand; the rest shatter or are yours.
+func _fall_gems(delta: float) -> void:
+	for i in range(_gems.size() - 1, -1, -1):
+		var g: Dictionary = _gems[i]
+		g.v = float(g.v) + 900.0 * delta
+		g.p = g.p + Vector2(0, g.v * delta)
+		g.spin = float(g.spin) + delta * 6.0
+		var floor_y := _flame_pos().y - 30.0 if g.hit else size.y - 90.0
+		if g.p.y < floor_y:
+			continue
+		_gems.remove_at(i)
+		if g.hit:
+			_spray(g.p, 10)
+			_drop_lighter("A falling %s hit you!  Grab your lighter!" % Game.ore_name(g.id))
+		elif randf() * 100.0 < Config.UMBRELLA_BREAK_CHANCE:
+			_spray(g.p, 8)
+			Sfx.play("slice_miss", 1.3)
+			_pop(g.p, "%s shattered" % Game.ore_name(g.id), Config.MUTED_TEXT)
+		else:
+			var n := roundi(Game.reward_mult())
+			Game.gain_ore(g.id, n)
+			Game.changed.emit()
+			Game.save()
+			Sfx.play("drop_rare")
+			_pop(g.p, "+%d %s!" % [n, Game.ore_name(g.id)], Config.ORES[g.id].color)
+
+
+func _run_on() -> bool:
+	return practice == "" and Game.trip_active
+
+
+## Torch: this stage the light looks after itself.
+func _torch() -> bool:
+	return _run_on() and Game.has_item("torch")
+
+
+## Great Ham (H or main's button): +2 lives. Returns true if you ate it.
+func eat_ham() -> bool:
+	if not _run_on():
+		return false
+	var got := Game.eat_ham()
+	if got <= 0.0:
+		if Game.run_items.has("great_ham"):
+			_pop(_flame_pos() + Vector2(190, 70), "You're too full - lives are maxed", Config.MUTED_TEXT)
+		return false
+	Sfx.play("ignite", 1.3)
+	item_popped.emit("GREAT HAM!  +%s lives" % str(got).trim_suffix(".0"), size * 0.5 + Vector2(0, -80))
+	return true
+
+
+## Dynamite (D or main's button): blows the wall straight down, even with the lighter out. Returns true if it did.
+func use_dynamite() -> bool:
+	if not _run_on() or _falling or resting or rise < 1.0 or light_state == "dropped" or not Game.use_dynamite():
+		return false
+	_gen += 1
+	kind = ""
+	_reset_input()
+	if light_state == "out":  # saved: the blast lights it back up
+		light_state = "lit"
+		_lid_target = 1.0
+		light = maxf(light, 0.6)
+	wick = 1.0
+	wick_extra = 1.0 if Game.has_extra_wick() else 0.0
+	var mid := size * 0.5
+	for i in 6:
+		_spray(mid + Vector2(randf_range(-260, 260), randf_range(-160, 160)), 10)
+	_shake_l = 1.0
+	dynamite_blown.emit(mid)
+	_crumble()
+	return true
+
+
+## A miss on this move: it knocks COMBO_LOST_PER_FAIL off your combo.
+## Little Light: any miss burns your hand (the run is over).
+func _note_fail() -> void:
+	_lose_combo(_action_center() + Vector2(0, -40))
+	_little_light_burn()
+	_wall_fails += 1 if practice == "" else 0
+	_break_focus()
+
+
+## A fail or a move that wasn't PERFECT: the PERFECT streak is over (and Deep Focus with it).
+func _break_focus() -> void:
+	if deep_focus():
+		_pop(_flame_pos() + Vector2(190, 10), "Focus lost", Config.MUTED_TEXT)
+	perfect_streak = 0
+
+
+## Deep Focus: DEEP_FOCUS_PERFECTS PERFECT moves in a row. Your flame burns blue until you break it.
+func deep_focus() -> bool:
+	return Config.DEEP_FOCUS_PERFECTS > 0 and perfect_streak >= Config.DEEP_FOCUS_PERFECTS
+
+
+## A fail (a miss, a mistimed flick, a flood...) knocks COMBO_LOST_PER_FAIL off the combo.
+func _lose_combo(at: Vector2) -> void:
+	if combo > 0 and practice == "":
+		_pop(at, "Combo -%d" % mini(Config.COMBO_LOST_PER_FAIL, combo), Config.SLICE_MISS_COLOR)
+	combo = maxi(combo - Config.COMBO_LOST_PER_FAIL, 0)
+
+
+## Little Light: you messed up, so it burns your hand - you drop the lighter and the run is over (next frame,
+## so the move that failed can finish what it was doing first).
+func _little_light_burn() -> void:
+	if _run_on() and Game.has_item("little_light"):
+		_burn_pending = true
 
 
 func _stray(p: Vector2, reason: String, cost := -1.0) -> void:
-	_burn_wick(Config.MISS_WICK_COST if cost < 0.0 else cost)
+	_burn_wick(_miss_cost(Config.MISS_WICK_COST if cost < 0.0 else cost))
 	_strays += 1
 	_miss_flash = 0.25
-	if Config.MISS_BREAKS_COMBO:
-		combo = 0
+	_note_fail()
 	missed.emit(reason, p)
 
 
 func _miss(reason: String, at: Vector2) -> void:
-	_burn_wick(Config.MISS_WICK_COST)
+	_burn_wick(_miss_cost(Config.MISS_WICK_COST))
 	_tracing = false
 	_holding = false
 	_fill = 0.0
@@ -1153,8 +1486,7 @@ func _miss(reason: String, at: Vector2) -> void:
 	_progress = 0.0
 	_next_corner = 0
 	_miss_flash = 0.4
-	if Config.MISS_BREAKS_COMBO:
-		combo = 0
+	_note_fail()
 	missed.emit(reason, at)
 	queue_redraw()
 
@@ -1163,6 +1495,7 @@ func _complete(perfect: bool, at: Vector2) -> void:
 	if wick < 0.97 and practice == "":
 		_wick_flash = 0.8  # show it: finishing the move is what filled the wick back up
 	wick = 1.0  # finishing the motion is the only thing that gives the wick back
+	wick_extra = 1.0 if _run_on() and Game.has_extra_wick() else 0.0
 	while _marks.size() > MAX_MARKS:
 		_marks.pop_front()
 	var done_kind := kind
@@ -1172,11 +1505,22 @@ func _complete(perfect: bool, at: Vector2) -> void:
 		combo += 1
 	else:
 		combo = 0
+	if practice == "":
+		_wall_moves += 1
+		_wall_perfects += 1 if perfect else 0
+	if perfect:
+		perfect_streak += 1
+		if perfect_streak == Config.DEEP_FOCUS_PERFECTS:
+			_pop(_flame_pos() + Vector2(190, 10), "DEEP FOCUS!", Config.DEEP_FOCUS_COLOR)
+			Sfx.play("ignite", 1.3)
+			_shake_l = maxf(_shake_l, 0.4)
+	else:
+		_break_focus()
 	action_done.emit(perfect, at, combo, combo_multiplier())
 	if practice != "":
 		practiced.emit(done_kind)
 	else:
-		actions_left -= 1
+		actions_left -= Config.SPIKE_BOOTS_COUNT * Game.item_count("spike_boots") if _run_on() and Game.has_item("spike_boots") else 1
 	if actions_left <= 0 and practice == "":
 		_crumble()
 	else:
@@ -1192,22 +1536,38 @@ func _next_action_soon() -> void:
 
 
 ## Fuel ran out or every circle was missed: combo lost, and the lighter goes out with it.
+## Dice of Dwarves: no relighting, the life is gone straight away.
 func _fail(reason: String, at: Vector2) -> void:
 	var lost := combo
 	combo = 0
+	_wall_fails += 1 if practice == "" else 0
+	_break_focus()
 	kind = ""
 	_reset_input()
 	_miss_flash = 0.5
 	failed.emit(reason, lost, at)
+	_little_light_burn()
 	if practice != "":
 		_next_action_soon()  # the tutorial keeps the lighter lit
+	elif _run_on() and Game.has_item("dice_of_dwarves") and not _burn_pending:
+		item_popped.emit("DICE OF DWARVES: no relighting - a life is gone", at + Vector2(0, -50))
+		_lose_life()
 	else:
 		_go_out()
 
 
-## The light faded all the way: combo lost, lighter out.
+## The light faded all the way: combo lost, lighter out. Cat's Eyes: the wick's gone - a life with it.
 func _light_died() -> void:
 	light = 0.0
+	if _cats_eyes():
+		var lost := combo
+		combo = 0
+		kind = ""
+		_reset_input()
+		_miss_flash = 0.5
+		failed.emit("The cat ate your wick!", lost, _flame_pos() + Vector2(160, -60))
+		_lose_life()
+		return
 	_fail("Your light died!", _flame_pos() + Vector2(160, -60))
 
 
@@ -1215,9 +1575,19 @@ func _light_died() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if active and event is InputEventKey and event.pressed and not event.echo and event.keycode == Config.LIGHTER_KEY:
 		if resting:
-			end_rest()
+			if not rest_hold:
+				end_rest()
 		else:
 			flick()
+		get_viewport().set_input_as_handled()
+	elif active and event is InputEventKey and event.pressed and not event.echo and event.keycode == Config.DYNAMITE_KEY:
+		use_dynamite()
+		get_viewport().set_input_as_handled()
+	elif active and event is InputEventKey and event.pressed and not event.echo and event.keycode == Config.RAM_KEY:
+		use_ram()
+		get_viewport().set_input_as_handled()
+	elif active and event is InputEventKey and event.pressed and not event.echo and event.keycode == Config.GREAT_HAM_KEY:
+		eat_ham()
 		get_viewport().set_input_as_handled()
 
 
@@ -1225,6 +1595,9 @@ func _unhandled_input(event: InputEvent) -> void:
 ## Out: only a strike while the marker is in the gold zone counts. Each good strike lowers the bar,
 ## speeds the marker up and shrinks the zone; a mistimed one pushes the bar back up.
 func flick() -> void:
+	if in_beat_practice():
+		_practice_flick()
+		return
 	if _falling or rise < 1.0:
 		return
 	match light_state:
@@ -1244,6 +1617,12 @@ func flick() -> void:
 		"lit":
 			# keep it burning: every flick only adds a little light (RECHARGE_MIN..MAX), so you keep
 			# flicking while you work. Flick it when it's already full and you flood it: half a life.
+			if _torch():
+				_pop(_flame_pos() + Vector2(190, 70), "The Torch keeps it lit!", Config.ACCENT)
+				return
+			if _cats_eyes():
+				_pop(_flame_pos() + Vector2(190, 70), "Cat's Eyes see for you - no flicking", Config.ACCENT)
+				return
 			if _hold > 0.0 and light >= Config.FLOOD_AT:
 				_flood()  # flicked during the steady full blaze
 				return
@@ -1255,20 +1634,27 @@ func flick() -> void:
 				return
 			# timing: only a flick while the FLICK bar is in its gold zone adds light. Spamming (too soon)
 			# or waiting too long (too late) fails: no light, and it burns some wick.
+			# the bar keeps the beat (it never restarts on a flick): one good flick per heartbeat
 			var z := flick_zone()
-			if _fm < z.x or _fm > z.y:
-				var early := _fm < z.x
-				_fm = 0.0
+			if _fm < z.x or _fm > z.y or _beat_used:
+				var early := _fm < z.x or (_beat_used and _fm <= z.y)
 				_fm_bad = 0.3
 				_shake_l = maxf(_shake_l, 0.35)
 				Sfx.play("misfire", 1.15)
 				_burn_wick(Config.FLICK_FAIL_WICK_COST)
 				var br := flick_bar_rect()
 				_pop(Vector2(br.end.x + 90, br.position.y + 60), "Too soon!" if early else "Too late!", Config.SLICE_MISS_COLOR)
+				if Config.FLICK_FAIL_LOSES_COMBO:
+					_lose_combo(Vector2(br.end.x + 90, br.position.y + 30))
+				_wall_fails += 1 if practice == "" else 0
+				_break_focus()
 				return
-			_fm = 0.0
+			_beat_used = true
 			_fm_ok = 0.25
-			light = minf(light + flick_gain(), wick)
+			var gain := flick_gain()
+			if _run_on() and Game.has_item("stronger_fluids"):
+				gain = maxf(gain, Config.STRONGER_FLUIDS_GAIN)  # two good flicks = full blaze
+			light = minf(light + gain, wick)
 			if light >= 1.0:
 				_full_blaze()
 			_sparks(4)
@@ -1297,11 +1683,27 @@ func flick() -> void:
 				Sfx.play("misfire")
 
 
-## The FLICK bar's tempo for what you're doing right now: [seconds to fill, gold zone size].
-## Each minigame has its own (Config.FLICK_TEMPO); later stages fill it faster.
+## The FLICK bar's tempo: [seconds per heartbeat, gold zone size]. It's your heart rate (bpm), which
+## only changes when a wall breaks - never in the middle of a wall, whatever move you're doing.
 func flick_tempo() -> Vector2:
-	var t: Array = Config.FLICK_TEMPO.get(kind if kind != "" and practice != "flick" else "", Config.FLICK_TEMPO[""])
-	return Vector2(maxf(float(t[0]) * lerpf(1.0, Game.stage_fuel_factor(), Config.FLICK_STAGE_SPEEDUP), 0.15), float(t[1]))
+	return Vector2(60.0 / maxf(heart_bpm(), 1.0), lerpf(Config.FLICK_ZONE_CALM, Config.FLICK_ZONE_STRESS, heart_stress()))
+
+
+## Your heart rate right now. Before the first wall of a run breaks it's just the stage's.
+func heart_bpm() -> float:
+	return bpm if bpm > 0.0 else _next_bpm(false)
+
+
+## The heart rate for the next wall: a resting heart, plus HEART_STAGE_BPM a stage, plus up to
+## HEART_PERFORM_BPM for how you played the last wall (mostly PERFECT = +, sloppy and failing = -), in steps of HEART_BPM_STEP.
+func _next_bpm(with_play := true) -> float:
+	var b := Config.HEART_REST_BPM + Config.HEART_STAGE_BPM * maxf(Game.skill_stage() - 1, 0)
+	if with_play and _wall_moves > 0:
+		var perf := clampf((float(_wall_perfects) - float(_wall_fails)) / _wall_moves, -1.0, 1.0)
+		b += Config.HEART_PERFORM_BPM * perf
+	if Config.HEART_BPM_STEP > 0.0:
+		b = snappedf(b, Config.HEART_BPM_STEP)  # 60, 70, 80 ... never 73
+	return clampf(b, Config.HEART_REST_BPM, Config.HEART_STRESS_BPM)
 
 
 ## Light one good flick adds. A slow bar gives fewer flicks, so each one gives more: timed perfectly,
@@ -1311,12 +1713,16 @@ func flick_gain() -> float:
 	var fade_per_sec := 1.0 / maxf(Config.LIGHT_DURATION * Game.stage_fuel_factor(), 0.1)
 	var by_tempo := fade_per_sec * Config.FLICK_GAIN * flick_tempo().x * randf_range(0.85, 1.15)
 	var gain := maxf(by_tempo, randf_range(Config.RECHARGE_MIN, Config.RECHARGE_MAX) / 100.0)
+	if _run_on():
+		gain *= pow(Config.STANDARD_GLOVES_LIGHT, Game.item_count("standard_gloves"))  # Standard Gloves
 	return gain * (1.0 + Game.upgrade_value("heat_of_the_forge") / 100.0)  # Heat of the Forge: more light per flick
 
 
-## The gold zone on the FLICK bar (from, to), at the top end of the bar.
+## The gold zone on the FLICK bar (from, to), at the top end of the bar. Drunk: a bigger zone.
 func flick_zone() -> Vector2:
 	var w := flick_tempo().y
+	if _run_on():
+		w = minf(w * pow(Config.DRUNK_FLICK_ZONE, Game.item_count("drunk")), Config.FLICK_ZONE_END - 0.05)
 	return Vector2(Config.FLICK_ZONE_END - w, Config.FLICK_ZONE_END)
 
 
@@ -1324,6 +1730,7 @@ func flick_zone() -> Vector2:
 func dev_flick() -> void:
 	var z := flick_zone()
 	_fm = (z.x + z.y) * 0.5
+	_beat_used = false
 	flick()
 
 
@@ -1355,6 +1762,7 @@ func _full_blaze(flash := true) -> void:
 
 func _ignite() -> void:
 	light_state = "lit"
+	_dropped_run = false
 	_full_blaze()
 	_lid_target = 1.0
 	_sparks(10)
@@ -1399,6 +1807,13 @@ func _flood() -> void:
 	_pop(_flame_pos() + Vector2(190, 70), "Flooded!", Config.SLICE_MISS_COLOR)
 	if practice != "":
 		return  # the tutorial doesn't take lives
+	_wall_fails += 1 if practice == "" else 0
+	_break_focus()
+	if Config.FLICK_FAIL_LOSES_COMBO:
+		_lose_combo(_flame_pos() + Vector2(190, 40))
+	if _run_on() and Game.has_item("hard_as_nails") and randf() * 100.0 < Config.HARD_AS_NAILS_CHANCE:
+		item_popped.emit("HARD AS NAILS!  No harm done", _flame_pos() + Vector2(220, -120))
+		return
 	var down := Game.lose_life(Config.FLOOD_LIFE_COST, false)
 	flooded.emit(down, _flame_pos() + Vector2(220, -120))
 	if down:
@@ -1447,6 +1862,8 @@ func danger() -> float:
 			var w := clampf((Config.DANGER_AT - wick) / Config.DANGER_AT, 0.0, 1.0) if kind != "" else 0.0
 			var l := clampf((Config.DANGER_AT - light) / Config.DANGER_AT, 0.0, 1.0)
 			return maxf(w, l)
+		"dropped":
+			return 1.0 - clampf(_drop_t / Config.DROPPED_LIGHTER_TIME, 0.0, 1.0) * 0.5
 		"out":
 			return clampf((Config.DANGER_RELIGHT_SECONDS - relight_left) / Config.DANGER_RELIGHT_SECONDS, 0.0, 1.0)
 	return 0.0
@@ -1464,6 +1881,8 @@ func _lighter_origin() -> Vector2:
 
 ## How lit the whole wall is, 0..1, in steps (pixel-art style) with a little flicker.
 func _ambient() -> float:
+	if _cats_eyes():
+		return 1.0  # Cat's Eyes: you see the whole wall, light or no light
 	var steps := float(maxi(Config.LIGHT_STEPS, 1))
 	var a := ceilf(pow(fuel(), Config.LIGHT_CURVE) * steps - 0.0001) / steps
 	a *= 1.0 - Config.LIGHT_FLICKER * 0.5 * (1.0 + sin(_t * 23.0) * sin(_t * 37.0))
@@ -1504,16 +1923,71 @@ func _crumble() -> void:
 		resting = true  # a break: nothing burns down until you're ready (end_rest)
 		_rest_cleared = cleared
 		return
+	if practice == "" and not free_practice:
+		_start_beat_practice()
+		return
 	new_wall()
 
 
-## The break between walls is over: the next wall drops in.
+## The break between walls is over: practise the new heartbeat, a countdown, then the next wall drops in.
 func end_rest() -> void:
 	if not resting:
 		return
 	resting = false
 	Sfx.play("click")
-	new_wall()
+	_start_beat_practice()
+
+
+## The wall broke, so your heart rate changes: the next wall drops in and the view zooms in on the FLICK bar
+## for BEAT_PRACTICE_TIME seconds to feel the new beat (flicks don't count). The last BEAT_COUNTDOWN seconds
+## count down 3, 2, 1 with a flash each; after 1 the moves start.
+func _start_beat_practice() -> void:
+	bpm = _next_bpm()
+	_fm = 0.0
+	_beat_used = false
+	_beat_hits = 0
+	_beat_tries = 0
+	_beat_flicking = light_state == "lit" and not _torch() and not _cats_eyes()
+	var t := Config.BEAT_PRACTICE_TIME if _beat_flicking else float(Config.BEAT_COUNTDOWN)
+	_show_wall()  # the next wall is up behind it, its moves wait for the countdown
+	if t <= 0.0:
+		_start_wall()
+		return
+	_beat_t = t
+	_beat_tick(ceili(t))
+
+
+## Each new second of the practice: 3, 2, 1 flash the screen.
+func _beat_tick(n: int) -> void:
+	if n >= 1 and n <= Config.BEAT_COUNTDOWN:
+		_count_flash = 1.0
+		Sfx.play("click", 0.9)
+
+
+## Zoomed in on the FLICK bar after a wall (practising the beat, then 3, 2, 1).
+func in_beat_practice() -> bool:
+	return _beat_t > 0.0
+
+
+## A flick while practising the beat: it just tells you how you did and costs nothing.
+func _practice_flick() -> void:
+	if light_state != "lit":
+		return
+	var z := flick_zone()
+	var br := _zoomed_bar_rect()
+	var at := Vector2(br.get_center().x, br.end.y + 100)
+	_beat_tries += 1
+	if _fm < z.x or _fm > z.y or _beat_used:
+		var early := _fm < z.x or (_beat_used and _fm <= z.y)
+		_fm_bad = 0.3
+		Sfx.play("misfire", 1.15)
+		_pop(at, "Too soon!" if early else "Too late!", Config.SLICE_MISS_COLOR)
+		return
+	_beat_used = true
+	_beat_hits += 1
+	_fm_ok = 0.25
+	Sfx.play("flick", 1.1)
+	_pop(at, "On the beat!", Config.ACCENT)
 
 
 ## Little stone bits in the wall tile's own colours (sized in whole wall pixels).
@@ -1539,15 +2013,30 @@ func _process(delta: float) -> void:
 	_glow = move_toward(_glow, glow_to, delta * (5.0 if glow_to > _glow else 2.5))
 	_spark = maxf(_spark - delta * 6.0, 0.0)
 	_shake_l = maxf(_shake_l - delta * 4.0, 0.0)
-	var tremble := Config.DANGER_SHAKE * danger()
-	_shake_off = (Vector2(randf_range(-1, 1), randf_range(-1, 1)) * (_shake_l * 10.0 + tremble)).round()
+	var tremble := 0.0 if peaceful() else Config.DANGER_SHAKE * danger()
+	_shake_off = (Vector2(randf_range(-1, 1), randf_range(-1, 1)) * (_shake_l * (0.0 if peaceful() else 10.0) + tremble)).round()
 	_meter_hit = maxf(_meter_hit - delta, 0.0)
 	_fm_ok = maxf(_fm_ok - delta, 0.0)
 	_fm_bad = maxf(_fm_bad - delta, 0.0)
-	if active and light_state == "lit" and not _falling and rise >= 1.0:
+	_beat_kick = maxf(_beat_kick - delta * 6.0, 0.0)
+	var practising := active and in_beat_practice()
+	_zoom = move_toward(_zoom, 1.0 if practising else 0.0, delta / 0.45)
+	if active and light_state == "lit" and ((not _falling and rise >= 1.0) or practising):
 		_fm += delta / flick_tempo().x
 		if _fm >= 1.0:
-			_fm = fmod(_fm, 1.0)  # missed the zone: it starts charging again
+			_fm = fmod(_fm, 1.0)  # the next heartbeat: the bar starts filling again
+			_beat_used = false
+			_beat_kick = 1.0
+	_count_flash = maxf(_count_flash - delta * 3.0, 0.0)
+	if practising:
+		var before := ceili(_beat_t)
+		_beat_t -= delta
+		if _beat_t <= 0.0:
+			_beat_t = 0.0
+			Sfx.play("ignite", 1.2)
+			_start_wall()  # after 1: back to the game
+		elif ceili(_beat_t) != before:
+			_beat_tick(ceili(_beat_t))
 	_meter_miss = maxf(_meter_miss - delta, 0.0)
 	if active and light_state == "out" and not _falling and rise >= 1.0:
 		_meter += _meter_dir * _meter_speed * delta  # bounces back and forth along the track
@@ -1561,18 +2050,62 @@ func _process(delta: float) -> void:
 		if practice == "":
 			relight_left -= delta
 			if relight_left <= 0.0:
-				_lose_life()
+				if _dropped_run:  # it was knocked out of your hand and you didn't get it going again
+					_dropped_run = false
+					light_state = "off"
+					Game.fail_run("You didn't relight your lighter in time - the run is over!")
+				else:
+					_lose_life()
+	# the lighter's on the floor: pick it up in time or the run's over
+	if active and light_state == "dropped" and not _falling:
+		_drop_t -= delta
+		if _drop_t <= 0.0:
+			light_state = "off"
+			Game.fail_run("You didn't pick up your lighter - the run is over!")
+	# Little Light: you messed up - it burns your hand, you drop the lighter and the run is over
+	if _burn_pending:
+		_burn_pending = false
+		if _run_on():
+			_gen += 1
+			kind = ""
+			_reset_input()
+			light_state = "off"
+			_lid_target = 0.0
+			_shake_l = 1.0
+			Sfx.play("fizzle")
+			Game.fail_run("LITTLE LIGHT burned your hand!  You dropped the lighter - the run is over!")
+	# Gilded Umbrella: gems fall from the roof
+	if active and _run_on() and Game.has_item("gilded_umbrella") and light_state == "lit" and not _falling and rise >= 1.0 and not in_beat_practice():
+		_gem_t -= delta
+		if _gem_t <= 0.0:
+			_gem_t = randf_range(Config.UMBRELLA_EVERY.x, Config.UMBRELLA_EVERY.y)
+			_spawn_gem()
+	_fall_gems(delta)
+	_mandrake()
 	_miss_flash = maxf(_miss_flash - delta, 0.0)
 	_jolt = maxf(_jolt - delta * 8.0, 0.0)
 	_wick_flash = maxf(_wick_flash - delta, 0.0)
-	if active and light_state == "lit" and not _falling and rise >= 1.0:
+	if active and light_state == "lit" and not _falling and rise >= 1.0 and not in_beat_practice():
+		var burn := delta / maxf(Config.WICK_TIME * Game.stage_fuel_factor() * _wick_mult(), 0.1)
+		var extra := _run_on() and wick_extra > 0.0  # Extra Wick: while it burns, the light holds
 		if _hold > 0.0:
 			_hold -= delta  # still at full blaze
-		else:
-			light -= delta / maxf(Config.LIGHT_DURATION * Game.stage_fuel_factor(), 0.1)
+		elif not extra and not _torch() and not _cats_eyes():
+			light -= delta / maxf(Config.LIGHT_DURATION * Game.stage_fuel_factor() * _light_mult(), 0.1)
 		if kind != "" and practice == "" and _hold <= 0.0:
-			wick -= delta / maxf(Config.WICK_TIME * Game.stage_fuel_factor(), 0.1)
-		light = minf(light, maxf(wick, 0.0))
+			if extra:
+				wick_extra = maxf(wick_extra - burn, 0.0)
+			else:
+				wick -= burn
+		if _torch() or _cats_eyes():
+			light = maxf(wick, 0.0)  # the Torch / Cat's Eyes: as bright as the wick allows, no flicking
+		elif not extra:
+			light = minf(light, maxf(wick, 0.0))
+		if _run_on() and Game.has_item("little_light") and not _torch() and not _cats_eyes() and kind != "":
+			# Little Light: flicks for you in the gold zone (never when it would flood or can't help)
+			var z := flick_zone()
+			if _hold <= 0.0 and light < 0.85 and light < wick - 0.02 and not _beat_used and _fm >= lerpf(z.x, z.y, 0.35) and _fm <= z.y:
+				flick()
 		if free_practice and practice not in ["flick", "relight"]:
 			light = 1.0  # practising a move: the lighter just stays bright, nothing to look after
 		elif practice != "":
@@ -1581,7 +2114,7 @@ func _process(delta: float) -> void:
 			_light_died()
 	if active and can_act():
 		if kind == "tap":
-			_tap_clock += delta
+			_tap_clock += delta / _ease()  # Beginner's Luck: the rings close slower
 			for tg in _targets.duplicate():
 				if kind != "tap":
 					break  # the action just ended
@@ -1589,10 +2122,10 @@ func _process(delta: float) -> void:
 					_tap_miss(tg, "Missed!")
 		if _tracing:
 			_swipe_t += delta
-			if (kind == "slash" and _swipe_t > Config.SLASH_SWIPE_TIME) or (kind == "bigslash" and _swipe_t > Config.BIGSLASH_SWIPE_TIME):
+			if (kind == "slash" and _swipe_t > Config.SLASH_SWIPE_TIME * _ease()) or (kind == "bigslash" and _swipe_t > Config.BIGSLASH_SWIPE_TIME * _ease()):
 				_miss("Too slow, swipe it!", _last_p)
 		if kind == "track":
-			_track_time += delta
+			_track_time += delta / _ease()
 			_spot = _track_pos_at(_track_time)
 		if kind == "spin" and _spin_started:
 			_spin_t += delta
@@ -1634,6 +2167,17 @@ func _process(delta: float) -> void:
 	queue_redraw()
 
 
+## Mandrake: screams every time the light drops a visible step darker.
+func _mandrake() -> void:
+	var step := -1
+	if active and light_state == "lit" and not _falling and not resting:
+		step = int(ceilf(pow(fuel(), Config.LIGHT_CURVE) * float(maxi(Config.LIGHT_STEPS, 1)) - 0.0001))
+	if step >= 0 and _dark_step >= 0 and step < _dark_step and _run_on() and Game.has_item("mandrake"):
+		Sfx.play("scream")
+		_pop(_flame_pos() + Vector2(150, -170), "AAAAAH!", Config.SLICE_MISS_COLOR)
+	_dark_step = step
+
+
 func _update_layers() -> void:
 	_dark.size = size
 	_top.size = size
@@ -1642,6 +2186,8 @@ func _update_layers() -> void:
 	mat.set_shader_parameter("ambient", _ambient())
 	var halo := _flame_pos() - Vector2(0, 80 * lerpf(Config.FLAME_MIN_SIZE, 1.0, fuel()))
 	mat.set_shader_parameter("light1", Vector4(halo.x, halo.y, _halo_radius(), 0.0))
+	var hat := _run_on() and Game.has_item("miners_hat")  # Miner's Hat: a lamp lights the wall round your cursor
+	mat.set_shader_parameter("light0", Vector4(_mouse.x, _mouse.y, Config.MINERS_HAT_RADIUS if hat else 0.0, 0.0))
 	mat.set_shader_parameter("darkness", Config.WALL_DARKNESS)
 	mat.set_shader_parameter("soft", clampf(Config.LIGHT_SOFT_EDGE, 0.0, 1.0))
 	mat.set_shader_parameter("bands", float(Config.LIGHT_BANDS))
@@ -1769,6 +2315,8 @@ func wick_gauge_rect() -> Rect2:
 ## About to lose (danger() > 0): a red border creeps in from the screen edges and throbs like a
 ## heartbeat, faster and stronger the closer you are. Drawn in hard steps, pixel-art style.
 func _draw_stress() -> void:
+	if peaceful():
+		return  # Art of Peace: no red edges
 	var d := danger()
 	if d <= 0.0 or Config.STRESS_ALPHA <= 0.0:
 		return
@@ -1826,23 +2374,94 @@ func _draw_wick_gauge() -> void:
 	elif Game.show_hints and kind != "" and practice == "" and wick < 0.7:
 		# while it burns: say what it's for, right next to it
 		var hc := Config.SLICE_MISS_COLOR if low else Config.TEXT_COLOR
-		_text("Finish the move", Vector2(r.position.x - 78, r.get_center().y - 8), 15, hc, font)
-		_text("to refill it", Vector2(r.position.x - 78, r.get_center().y + 12), 15, hc, font)
+		_text("Finish the move", Vector2(r.position.x - (104.0 if _run_on() and Game.has_extra_wick() else 78.0), r.get_center().y - 8), 15, hc, font)
+		_text("to refill it", Vector2(r.position.x - (104.0 if _run_on() and Game.has_extra_wick() else 78.0), r.get_center().y + 12), 15, hc, font)
+	if _run_on() and Game.has_extra_wick():  # the Extra Wick: a slimmer bar beside it, burns first
+		var er := Rect2(r.position - Vector2(sc * 4.0 + 10.0, 0), Vector2(sc * 4.0, r.size.y))
+		_ci.draw_rect(er.grow(sc), Config.TEXT_OUTLINE_COLOR)
+		_ci.draw_rect(er, Color("#2a1d16"))
+		var eh := (er.size.y - sc * 2.0) * clampf(wick_extra, 0.0, 1.0)
+		_ci.draw_rect(Rect2(er.position.x + sc, er.end.y - sc - eh, er.size.x - sc * 2.0, eh), Color("#ffd166"))
+		_text("EXTRA", Vector2(er.get_center().x, er.position.y - 12), 15, Config.ACCENT, font)
 
 
 func _draw_top() -> void:
 	_ci = _top
 	_draw_stress()
 	_draw_chips(true)
+	_draw_gems()
 	_draw_lighter()
+	if _zoom > 0.0:  # practising the beat after a wall: everything but the FLICK bar fades back
+		_ci.draw_rect(Rect2(Vector2.ZERO, size), Color(0, 0, 0, Config.BEAT_PRACTICE_DIM * _zoom_e()))
 	_draw_flick_bar()
 	_draw_wick_gauge()
+	_draw_beat_practice()
 	for pp in _pops:
 		var c: Color = pp.c
 		c.a = clampf(pp.life * 3.0, 0.0, 1.0)
 		_text(pp.text, pp.p - Vector2(0, Config.TAP_RADIUS + 8), 20, c, title_font)
 	_draw_hud()
+	if _count_flash > 0.0:  # 3, 2, 1: the whole screen flashes
+		_ci.draw_rect(Rect2(Vector2.ZERO, size), Color(1, 1, 1, Config.COUNTDOWN_FLASH * _count_flash))
 	_ci = self
+
+
+func _zoom_e() -> float:
+	return smoothstep(0.0, 1.0, _zoom)
+
+
+## How racing your heart is: 0 = resting, 1 = under stress.
+func heart_stress() -> float:
+	return clampf(inverse_lerp(Config.HEART_REST_BPM, Config.HEART_STRESS_BPM, heart_bpm()), 0.0, 1.0)
+
+
+## Where the FLICK bar is drawn: zoomed in to the middle of the screen while you practise the beat,
+## and it jolts on every heartbeat (harder the faster your heart goes). Returns (origin, scale).
+func _bar_xform() -> Array:
+	var r := flick_bar_rect()
+	var e := _zoom_e()
+	var sc := lerpf(1.0, Config.BEAT_PRACTICE_ZOOM, e)
+	var target := Vector2(size.x * 0.4, size.y * 0.5 + 50.0)  # left of centre: the words go on the right
+	var c := r.get_center().lerp(target, e)
+	var jolt := Config.FLICK_BEAT_SHAKE * _beat_kick * lerpf(0.6, 1.6, heart_stress()) * lerpf(1.0, 2.0, e)
+	if peaceful():
+		jolt = 0.0  # Art of Peace: nothing shakes
+	var off := Vector2(randf_range(-1, 1), randf_range(-1, 1)) * jolt
+	return [(c - r.get_center() * sc + off).round(), sc]
+
+
+## The FLICK bar's rect on screen (zoomed in while you practise the beat).
+func _zoomed_bar_rect() -> Rect2:
+	var r := flick_bar_rect()
+	var xf := _bar_xform()
+	var o: Vector2 = xf[0]
+	var sc: float = xf[1]
+	return Rect2(o + r.position * sc, r.size * sc)
+
+
+## After a wall: "feel the beat" for BEAT_PRACTICE_TIME seconds, then a 3, 2, 1 countdown.
+func _draw_beat_practice() -> void:
+	if _zoom <= 0.0:
+		return
+	var a := _zoom_e()
+	var br := _zoomed_bar_rect()
+	var mid := Vector2(lerpf(br.end.x, size.x - 150.0, 0.5), br.get_center().y)  # between the bar and the Back button
+	if not _beat_flicking:
+		mid = size * 0.5
+	var n := ceili(_beat_t)
+	var counting := _beat_t > 0.0 and n <= Config.BEAT_COUNTDOWN
+	if _beat_flicking:
+		_text("FEEL THE BEAT" if not counting else "GET READY", mid + Vector2(0, -70), 40, Color(Config.ACCENT, a), title_font)
+		_text("Your heart: %d BPM" % roundi(heart_bpm()), mid + Vector2(0, -28), 22, Color(Config.TEXT_COLOR, a), font)
+		if not counting:
+			_text("Flick SPACE on every beat", mid + Vector2(0, 2), 18, Color(Config.TEXT_COLOR, a), font)
+			_text("(practice - it doesn't count)", mid + Vector2(0, 26), 16, Color(Config.MUTED_TEXT, a), font)
+			_text("%d / %d on the beat" % [_beat_hits, _beat_tries], mid + Vector2(0, 66), 18, Color(Config.ACCENT, a), font)
+	elif _beat_t > 0.0:
+		_text("GET READY", mid + Vector2(0, -70), 40, Color(Config.ACCENT, a), title_font)
+	if counting:
+		var pulse := 1.0 + 0.35 * clampf(_beat_t - floorf(_beat_t) - 0.6, 0.0, 0.4) / 0.4
+		_text(str(n), mid + Vector2(0, 90), roundi(100 * pulse), Color(Config.ACCENT, a), title_font)
 
 
 ## Where the FLICK bar sits: just right of the lighter, bottom of the screen (doesn't follow the lean).
@@ -1857,10 +2476,25 @@ func flick_bar_rect() -> Rect2:
 ## The FLICK bar, pixel art like the wick: it charges up from the bottom at this minigame's tempo;
 ## the gold band near the top is when a flick counts. Green flash = good flick, red = mistimed.
 func _draw_flick_bar() -> void:
-	if light_state != "lit" or _glow < 0.5:
+	if light_state != "lit" or _glow < 0.5 or _torch() or _cats_eyes():
 		return
+	var xf := _bar_xform()
+	var o: Vector2 = xf[0]
+	var sc: float = xf[1]
+	_ci.draw_set_transform(o, 0.0, Vector2(sc, sc))
+	_draw_flick_bar_body()
+	_ci.draw_set_transform_matrix(Transform2D.IDENTITY)
+
+
+func _draw_flick_bar_body() -> void:
 	var sc := float(Config.LIGHTER_SCALE)
 	var r := flick_bar_rect()
+	if _run_on() and Game.has_item("little_light") and not _flame_frames.is_empty():
+		# Little Light: a tiny flame bobbing over the FLICK bar (it does the flicking)
+		var ft := _flame_frames[int(_t * 10.0) % _flame_frames.size()]
+		var fs := ft.get_size() * sc * 0.35
+		var fp := Vector2(r.get_center().x - fs.x * 0.5, r.position.y - fs.y - 26.0 + sin(_t * 4.0) * 4.0)
+		_ci.draw_texture_rect(ft, Rect2(fp.round(), fs), false)
 	var rows := int(r.size.y / sc)
 	var cols := int(r.size.x / sc)
 	var full := _hold > 0.0  # steady full blaze: flicking now floods it
@@ -1891,6 +2525,43 @@ func _draw_flick_bar() -> void:
 	var label := "FULL" if full else ("FLICK!" if in_zone else "FLICK")
 	var col := Config.MUTED_TEXT if full else (Config.ACCENT if in_zone else Config.TEXT_COLOR)
 	_text(label, Vector2(r.get_center().x, r.position.y - 12), 16, col, font)
+	_draw_heart(Vector2(r.get_center().x, r.position.y - 40))
+
+
+## Your heart rate over the FLICK bar: a pixel heart that thumps on every beat, and the BPM.
+func _draw_heart(at: Vector2) -> void:
+	const HEART := [".XX.XX.", "XXXXXXX", "XXXXXXX", ".XXXXX.", "..XXX..", "...X..."]
+	var px := 3.0 * (1.0 + 0.3 * _beat_kick)
+	var hc := Config.SLICE_MISS_COLOR.lerp(Color.WHITE, 0.35 * _beat_kick)
+	var txt := "%d" % roundi(heart_bpm())
+	var tw := font.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, Config.font_px(15)).x if font else 24.0
+	var hw := 7.0 * px
+	var x0 := at.x - (hw + 6.0 + tw) * 0.5
+	var y0 := at.y - 6.0 * px * 0.5 - 5.0
+	for row in HEART.size():
+		var line: String = HEART[row]
+		for i in line.length():
+			if line[i] == "X":
+				_ci.draw_rect(Rect2(Vector2(x0 + i * px, y0 + row * px).round(), Vector2(px, px).ceil()), hc)
+	_text(txt, Vector2(x0 + hw + 6.0 + tw * 0.5, at.y), 15, Config.TEXT_COLOR, font)
+
+
+## Deep Focus: your flame art with its warm colours turned blue (its blue gas and white core stay as they are).
+func _blue_flame(tex: Texture2D) -> Texture2D:
+	var img := tex.get_image()
+	if img == null:
+		return tex
+	if img.is_compressed():
+		img.decompress()
+	img.convert(Image.FORMAT_RGBA8)
+	for y in img.get_height():
+		for x in img.get_width():
+			var c := img.get_pixel(x, y)
+			if c.a <= 0.0 or c.s < 0.08 or (c.h > 0.4 and c.h < 0.8):
+				continue
+			var warm := c.h if c.h < 0.5 else c.h - 1.0  # red 0, orange ~0.08, yellow ~0.16
+			img.set_pixel(x, y, Color.from_hsv(clampf(0.64 - warm * 0.9, 0.45, 0.75), c.s, c.v, c.a))
+	return ImageTexture.create_from_image(img)
 
 
 ## Your lighter, held at the left like a torch. Lid frame from the open/close animation; the flame is the timer.
@@ -1898,6 +2569,20 @@ func _draw_lighter() -> void:
 	if _lighter_frames.is_empty():
 		return
 	var sc := float(Config.LIGHTER_SCALE)
+	if light_state == "dropped":  # on the floor, on its side: click it!
+		var t0 := _lighter_frames[0]
+		_ci.draw_set_transform(_drop_pos, PI * 0.5, Vector2.ONE)
+		_ci.draw_texture_rect(t0, Rect2(-t0.get_size() * sc * 0.5, t0.get_size() * sc), false)
+		_ci.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		var blink := 0.6 + 0.4 * sin(_t * 10.0)
+		_text("CLICK IT - PICK IT UP!  %.1fs" % maxf(_drop_t, 0.0), _drop_pos + Vector2(0, -110), 26, Color(Config.SLICE_MISS_COLOR, blink), title_font)
+		return
+	if _torch() and not _torch_frames.is_empty() and light_state == "lit":
+		# the Torch artifact: your torch art instead of the lighter (its flame is where the light comes from)
+		var tt := _torch_frames[int(_t * Config.FLAME_FPS) % _torch_frames.size()]
+		var ts := tt.get_size() * sc
+		_ci.draw_texture_rect(tt, Rect2((_flame_pos() - Vector2(ts.x * 0.62, ts.y * 0.32)).round(), ts), false)
+		return
 	var n := _lighter_frames.size()
 	var tex := _lighter_frames[clampi(roundi(_lid * (n - 1)), 0, n - 1)]
 	var o := _lighter_origin()
@@ -1912,10 +2597,23 @@ func _draw_lighter() -> void:
 	var base := o + FLAME_ANCHOR * sc
 	if not _flame_frames.is_empty():
 		# your 8-frame flicker; its bottom (the blue gas) sits in the chimney
-		var ftex := _flame_frames[int(_t * Config.FLAME_FPS) % _flame_frames.size()]
+		var frames := _flame_frames_blue if deep_focus() and _flame_frames_blue.size() == _flame_frames.size() else _flame_frames
+		var ftex := frames[int(_t * Config.FLAME_FPS) % frames.size()]
 		var fs := (ftex.get_size() * sc * k).round()
 		var bottom := base + Vector2(0, Config.FLAME_SINK * sc)
 		_ci.draw_texture_rect(ftex, Rect2((bottom - Vector2(fs.x * 0.5, fs.y)).round(), fs), false)
+
+
+## Gilded Umbrella: the gems falling from the roof (spinning), with a warning line under the one aimed at you.
+func _draw_gems() -> void:
+	for g in _gems:
+		var tex := Game.ore_texture(g.id)
+		var s := Vector2(40, 40)
+		if g.hit:
+			_text("!", Vector2(g.p.x, _flame_pos().y - 140.0), 32, Config.SLICE_MISS_COLOR, title_font)
+		_ci.draw_set_transform(g.p, float(g.spin), Vector2.ONE)
+		_ci.draw_texture_rect(tex, Rect2(-s * 0.5, s), false)
+		_ci.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
 func _draw_mark(m: Dictionary) -> void:
@@ -2165,6 +2863,14 @@ func _draw_hud() -> void:
 		var pop := 1.0 + 0.15 * maxf(0.0, sin(_t * 9.0)) * minf(combo / 10.0, 1.0)
 		_text("COMBO x%d" % combo, Vector2(150, 52), int(32 * pop), Config.ACCENT, title_font)
 		_text("coins x%s" % _num(combo_multiplier()), Vector2(150, 78), 18, Config.TEXT_COLOR, font)
+	if _run_on() and Game.has_item("midas_touch"):  # Midas: the multiplier and the pot at stake
+		var glow := 0.75 + 0.25 * sin(_t * 3.0)
+		_text("MIDAS x%s" % _num(Game.midas), Vector2(150, 112), 26, Color(1.0, 0.85 * glow + 0.1, 0.3), title_font)
+		_text("pot: %d coins" % Game.run_pot, Vector2(150, 136), 17, Config.ACCENT, font)
+	if _torch() and not resting:
+		_text("TORCH: no flicking this stage", Vector2(size.x * 0.5, 140), 17, Config.ACCENT, font)
+	if _cats_eyes() and light_state == "lit" and not resting and not _falling:
+		_text("CAT'S EYES: no flicking - but every miss costs 25% wick", Vector2(size.x * 0.5, 162), 17, Config.TEXT_COLOR, font)
 	if resting:
 		_draw_rest()
 		return
@@ -2179,6 +2885,8 @@ func _draw_hud() -> void:
 
 ## The break between walls: a box in the middle; click or SPACE when you're ready.
 func _draw_rest() -> void:
+	if rest_ui_external:
+		return
 	var c := Vector2(size.x * 0.5 + 60, size.y * 0.5 - 30)
 	var box := Rect2(c - Vector2(290, 92), Vector2(580, 184))
 	_ci.draw_rect(box.grow(6), Config.TEXT_OUTLINE_COLOR)

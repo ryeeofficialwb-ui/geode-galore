@@ -69,17 +69,42 @@ var practice_overlay: Control
 var mine_overlay: Control           # Select Mine: the Mine button's cave picker
 var mine_list: VBoxContainer
 var mine_claim_btn: Button
+var rest_panel: PanelContainer      # the break between walls: next wall, item picks, Midas cash-out
+var rest_title: Label
+var rest_info: Label
+var rest_offer_box: VBoxContainer
+var rest_offer_row: HBoxContainer
+var rest_offer_note: Label
+var rest_items_row: HBoxContainer
+var rest_midas_box: HBoxContainer
+var rest_midas_label: Label
+var rest_continue: Button
+var _rest_shown := false
+var _swap_pick := ""                # slots full: the offered item waiting for you to pick one to swap out
+var items_hud: HBoxContainer        # on the wall: the items you hold this run
+var dynamite_btn: Button
+var ram_btn: Button
+var ham_btn: Button                 # Great Ham: eat it for +2 lives
+var wall_book_btn: Button           # the Artifact Book, on the wall too (opening it pauses the mine)
+var rest_extra_box: VBoxContainer
+var book_overlay: Control           # the Artifact Book (Select Mine): every artifact there is
+var book_list: GridContainer
 var hints_btn: Button
 var tips_btn: Button                # Settings > Tips (the pop-up tips as you play)
 var _hints: Array[Control] = []     # helper texts that Settings > Hint text hides
 var bag_list: VBoxContainer
+var crush_btn: Button               # Crush All: every rock at once, supernova style
+var _crush_fx: CrushFx
+var _game_over: Control             # the "no more fuel" screen while it's up
 var ore_list: VBoxContainer
 var sell_all_btn: Button
 var shop_overlay: Control
-var shop_grid: GridContainer
+var shop_grid: GridContainer        # the Rock Shop's wooden shelf: one cubby per rock
+var shop_clock: Label               # Philippine time (the shelf and prices follow it, the same for everyone)
 var shop_timer: Label
 var restock_btn: Button
 var reset_confirm: ConfirmationDialog
+var leave_confirm: ConfirmationDialog   # Back on a run = cash out (asks first)
 var toast_label: Label
 var toast_tween: Tween
 var fx_layer: Control
@@ -111,6 +136,18 @@ func _ready() -> void:
 	wall_view.flooded.connect(_on_flooded)
 	wall_view.full_light.connect(_on_full_light)
 	wall_view.stage_up.connect(_on_stage_up)
+	wall_view.dynamite_blown.connect(func(at: Vector2):
+		_shake = Config.SCREEN_SHAKE_ON_BREAK * 2.0
+		Sfx.play("wall_break", 0.7)
+		_float_text(wall_view.global_position + at - fx_layer.global_position + Vector2(0, -60), "KABOOM!  Dynamite", Config.SLICE_MISS_COLOR, 0.0))
+	wall_view.item_popped.connect(func(text: String, at: Vector2):
+		Sfx.play("drop_rare")
+		_float_text(wall_view.global_position + at - fx_layer.global_position, text, Config.ACCENT, 0.0))
+	Game.item_used.connect(func(_id: String, text: String):
+		Sfx.play("drop_rare")
+		_float_text(Vector2(size.x * 0.5, size.y * 0.42), text, Config.ACCENT, 0.3))
+	Game.run_changed.connect(_refresh_run)
+	wall_view.rest_ui_external = true
 	Game.lucky_sale.connect(_on_lucky_sale)
 	Game.market_moved.connect(_refresh)
 	Game.trip_over.connect(_on_trip_over)
@@ -160,19 +197,35 @@ func _process(delta: float) -> void:
 	_layout_screens()
 	version_label.visible = not on_wall
 	version_label.position = Vector2(14, size.y - version_label.size.y - 8)
-	wall_view.active = on_wall and not (shop_overlay.visible or backpack_overlay.visible or settings_overlay.visible or practice_overlay.visible or mine_overlay.visible or reset_confirm.visible) 			and (not tutorial.visible or tutorial.practicing())  # the tutorial freezes the wall, except while you try an action
+	wall_view.active = on_wall and not (shop_overlay.visible or backpack_overlay.visible or settings_overlay.visible or practice_overlay.visible or mine_overlay.visible or book_overlay.visible or reset_confirm.visible or leave_confirm.visible) 			and (not tutorial.visible or tutorial.practicing())  # the tutorial freezes the wall, except while you try an action
 	wall_view.active = wall_view.active and (Game.trip_active or tutorial.practicing() or wall_view.free_practice)  # no ticket, no mining (Practice is free)
 	if shop_overlay.visible and shop_tab == "stocks":
-		stock_timer.text = "Prices change in %s" % _fmt_time(Game.restock_left())
+		stock_timer.text = "Prices change in %s  (PH %s)" % [_fmt_time(Game.restock_left()), Game.market_clock()]
 	if shop_overlay.visible:
-		shop_timer.text = "Restocks in %s" % _fmt_time(Game.restock_left()) + ("  -  the market moves every restock" if Game.show_hints else "")
+		shop_timer.text = "Restocks in %s" % _fmt_time(Game.restock_left())
+		shop_clock.text = "Philippine time %s - everyone sees the same shelf & prices" % Game.market_clock()
 		_update_tickets()
 	elif mine_overlay.visible:
 		_update_tickets()  # the free ticket's countdown
+	# the break between walls: our panel (items, Midas) over the wall
+	var want_rest: bool = on_wall and wall_view.resting and wall_view.practice == "" and not wall_view.free_practice
+	if want_rest != _rest_shown:
+		_rest_shown = want_rest
+		rest_panel.visible = want_rest
+		_swap_pick = ""
+		_refresh_run()
 	if on_wall and wall_view.active:  # about to lose: the whole screen trembles too
 		_shake = maxf(_shake, wall_view.danger() * Config.DANGER_SCREEN_SHAKE)
 		if wall_view.danger() > 0.35:
 			tutorial.tip("danger", true)
+	if on_wall and wall_view.peaceful():
+		_shake = 0.0  # Art of Peace: the screen never shakes
+	if on_wall and wall_view.active and wall_view.practice == "" and not wall_view.free_practice:
+		Game.note_time(delta / maxf(Engine.time_scale, 0.01))  # real seconds, even with Rapid Fire
+	# Rapid Fire: everything in the mine runs faster (only while you're mining, not on breaks or in menus)
+	var speed := Game.rapid_speed() if wall_view.active and wall_view.practice == "" and not wall_view.free_practice and not wall_view.resting and not wall_view.in_beat_practice() else 1.0
+	if not is_equal_approx(Engine.time_scale, speed):
+		Engine.time_scale = speed
 	if _shake > 0.0:
 		_shake = move_toward(_shake, 0.0, delta * 40.0)
 		position = Vector2(randf_range(-1, 1), randf_range(-1, 1)) * _shake
@@ -287,6 +340,12 @@ func _build() -> void:
 	hint_label = _hint(_label("", 18, Config.MUTED_TEXT)) as Label
 	hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	center.add_child(hint_label)
+	crush_btn = _button("CRUSH ALL", _crush_all)
+	crush_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	crush_btn.custom_minimum_size = Vector2(220, 52)
+	crush_btn.add_theme_font_size_override("font_size", Config.font_px(20))
+	crush_btn.tooltip_text = "Break every rock you have at once (the bag and the anvil)"
+	center.add_child(crush_btn)
 
 	var right := _panel(280)
 	body.add_child(right)
@@ -306,8 +365,9 @@ func _build() -> void:
 	wall_view.font = font
 	wall_view.title_font = title_font
 	wall_screen.add_child(wall_view)
-	back_btn = _arrow_button(">", "Back", _go_main)
+	back_btn = _arrow_button(">", "Back", _leave_mine)
 	wall_screen.add_child(back_btn)
+	_build_run_ui()
 	add_child(menu_bar)  # above the screens
 
 	# --- floating fx (drop pop-ups) above everything
@@ -321,6 +381,7 @@ func _build() -> void:
 	_build_settings()
 	_build_practice()
 	_build_select_mine()
+	_build_book()
 
 	toast_label = _title("", 22, Config.TEXT_COLOR)
 	toast_label.add_theme_constant_override("outline_size", Config.TEXT_OUTLINE_SIZE + 3)
@@ -348,6 +409,11 @@ func _build() -> void:
 	reset_confirm.dialog_text = "Start over? Coins, rocks and ores are wiped."
 	reset_confirm.confirmed.connect(_reset)
 	add_child(reset_confirm)
+	leave_confirm = ConfirmationDialog.new()
+	leave_confirm.ok_button_text = "Cash out & leave"
+	leave_confirm.cancel_button_text = "Keep mining"
+	leave_confirm.confirmed.connect(_cash_out)
+	add_child(leave_confirm)
 	_update_sound_btn()
 
 
@@ -408,17 +474,39 @@ func _build_shop() -> void:
 	rock_page.add_theme_constant_override("separation", 10)
 	rock_page.custom_minimum_size.x = 820
 	v.add_child(rock_page)
-	shop_timer = _label("", 16, Config.MUTED_TEXT)
-	rock_page.add_child(shop_timer)
-	shop_grid = GridContainer.new()
-	shop_grid.columns = mini(Config.SHOP_SLOTS, 4)
-	shop_grid.add_theme_constant_override("h_separation", 10)
-	shop_grid.add_theme_constant_override("v_separation", 10)
-	shop_grid.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	rock_page.add_child(shop_grid)
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 12)
+	rock_page.add_child(head)
+	var times := VBoxContainer.new()
+	times.add_theme_constant_override("separation", 0)
+	times.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(times)
+	shop_timer = _label("", 16, Config.TEXT_COLOR)
+	times.add_child(shop_timer)
+	shop_clock = _hint(_label("", 16, Config.MUTED_TEXT)) as Label
+	times.add_child(shop_clock)
 	restock_btn = _button("", _instant_restock)
 	restock_btn.visible = Config.INSTANT_RESTOCK_COST >= 0
-	rock_page.add_child(restock_btn)
+	restock_btn.add_theme_font_size_override("font_size", Config.font_px(16))
+	restock_btn.custom_minimum_size = Vector2(240, 44)
+	head.add_child(restock_btn)
+	# the shelf: every rock in its own wooden cubby, cheapest first (click one to buy it)
+	var ssc := ScrollContainer.new()
+	ssc.custom_minimum_size = Vector2(820, 430)
+	ssc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	rock_page.add_child(ssc)
+	var shelf := PanelContainer.new()
+	shelf.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var shelf_sb := _skin("shelf", Vector4i(6, 6, 6, 6), Vector4(7, 7, 7, 7), true)
+	if shelf_sb:
+		shelf.add_theme_stylebox_override("panel", shelf_sb)
+	ssc.add_child(shelf)
+	shop_grid = GridContainer.new()
+	shop_grid.columns = 6
+	shop_grid.add_theme_constant_override("h_separation", 4)
+	shop_grid.add_theme_constant_override("v_separation", 4)
+	shop_grid.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	shelf.add_child(shop_grid)
 
 	dwarf_page = VBoxContainer.new()
 	dwarf_page.add_theme_constant_override("separation", 10)
@@ -859,10 +947,8 @@ func _show_market_detail(id: String) -> void:
 		var pf := _profit(id, true)
 		_detail_line("Profit: %s coins each vs the normal price" % (("+%d" % pf) if pf > 0 else str(pf)), _pct_color(pf))
 		_detail_line("In your backpack: %d" % int(Game.ores.get(id, 0)), Config.TEXT_COLOR)
-		var ch: Array = o.get("chance", [0, 0])
-		_detail_line("Chance per roll: %s%% in the cheapest rocks, up to %s%% in the best" % [String.num(float(ch[0]), 3), String.num(float(ch[1]), 2)], Config.TEXT_COLOR)
 		var best := _best_rocks_for(id)
-		_detail_line("Best found in: " + ", ".join(best), Config.TEXT_COLOR)
+		_detail_line("Only found in: " + ", ".join(best), Config.TEXT_COLOR)
 		market_detail.add_child(HSeparator.new())
 		var lore := _label(Config.ORE_LORE.get(id, "Nobody knows much about this one yet."), 16, Config.TEXT_COLOR)
 		lore.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -876,12 +962,11 @@ func _show_market_detail(id: String) -> void:
 				("+%d%%" % tr) if tr > 0 else ("%d%%" % tr) if tr < 0 else "no change"], _pct_color(pct - 100, true))
 		_detail_line("Hits to break: %d - %d" % [int(r.get("hits_min", Config.HITS_MIN)), int(r.get("hits_max", Config.HITS_MAX))], Config.TEXT_COLOR)
 		_detail_line("Drop rolls: %d" % int(r.get("rolls", 1)), Config.TEXT_COLOR)
-		var bonus: Dictionary = r.get("bonus", {})
-		if not bonus.is_empty():
-			var parts := []
-			for oid in bonus:
-				parts.append("%s x%s" % [Game.ore_name(oid), String.num(float(bonus[oid]), 1)])
-			_detail_line("Speciality: " + ", ".join(parts), Config.TEXT_COLOR)
+		var parts := []
+		for oid in r.get("drops", {}):
+			parts.append("%s (%s%%)" % [Game.ore_name(oid), String.num(Game.drop_chance(id, oid), 1)])
+		_detail_line("Can drop: " + ", ".join(parts), Config.TEXT_COLOR)
+		_detail_line("In stock at a restock: %d%% of the time (up to %d)" % [roundi(float(r.get("stock_chance", 1.0)) * 100.0), int(r.get("stock_max", 1))], Config.TEXT_COLOR)
 		_detail_line("Worth inside, on average: ~%d coins at today's prices" % roundi(_rock_worth(id)), Config.ACCENT)
 		var pf := _profit(id, false)
 		_detail_line("Profit: %s coins per rock, on average" % (("+%d" % pf) if pf > 0 else str(pf)), _pct_color(pf))
@@ -1061,17 +1146,37 @@ func _volume_row(parent: Control, text: String, value: float, setter: Callable) 
 func _refresh() -> void:
 	_apply_hints()
 	coin_label.text = "%d coins" % Game.coins
+	_update_crush_btn()
 	# bag
 	for c in bag_list.get_children():
 		c.queue_free()
 	if Game.rocks.is_empty():
 		bag_list.add_child(_label("Empty. Buy rocks in the Shop!", 15, Config.MUTED_TEXT))
 	for id in Game.rocks:
-		var b := _button("%s  x%d" % [Game.rock_name(id), Game.rocks[id]], _place.bind(id))
-		b.icon = Game.rock_icon(id)
-		b.expand_icon = true
-		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		# the icon has a fixed size and the name clips with "..." - a Button's expand_icon shrank the
+		# icon to nothing to make room for a long name
+		var label := "%s  x%d" % [Game.rock_name(id), Game.rocks[id]]
+		var b := _button("", _place.bind(id))
+		b.tooltip_text = label
 		b.custom_minimum_size = Vector2(0, 56)
+		var hb := HBoxContainer.new()
+		hb.set_anchors_preset(Control.PRESET_FULL_RECT)
+		hb.offset_left = 8
+		hb.offset_right = -8
+		hb.add_theme_constant_override("separation", 8)
+		hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		b.add_child(hb)
+		var ic := _icon(Game.rock_icon(id), 40)
+		ic.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		ic.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		hb.add_child(ic)
+		var nl := _label(label, 24, Config.TEXT_COLOR)
+		nl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		nl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		nl.clip_text = true
+		nl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		nl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		hb.add_child(nl)
 		bag_list.add_child(b)
 	# ores
 	for c in ore_list.get_children():
@@ -1113,43 +1218,84 @@ func _refresh() -> void:
 	_rebuild_caves()
 	_update_tickets()
 	_rebuild_market()
+	_refresh_run()
 
 
 func _rebuild_shop() -> void:
 	restock_btn.text = "Restock now (%d coins)" % Game.restock_cost()
 	restock_btn.tooltip_text = "Each restock you pay for costs x%s more, until the shop restocks by itself" % String.num(Config.INSTANT_RESTOCK_GROWTH, 1)
 	restock_btn.disabled = Game.coins < Game.restock_cost()
+	if not shop_overlay.visible:
+		return  # the shelf (30 cubbies) is only rebuilt while you're looking at it (and when the shop opens)
 	for c in shop_grid.get_children():
 		c.queue_free()
 	for i in Game.shop.size():
-		var s: Dictionary = Game.shop[i]
-		var card := PanelContainer.new()
-		card.add_theme_stylebox_override("panel", slot_style)
-		card.custom_minimum_size.x = 190
-		var v := VBoxContainer.new()
-		v.alignment = BoxContainer.ALIGNMENT_CENTER
-		card.add_child(v)
-		var ic := _icon(Game.rock_texture(s.id), 96)
-		ic.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-		v.add_child(ic)
-		var name_l := _label(Game.rock_name(s.id), 18, Config.TEXT_COLOR)
-		name_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		v.add_child(name_l)
-		var stock_l := _label("%d left" % s.stock if s.stock > 0 else "SOLD OUT", 14,
-				Config.MUTED_TEXT if s.stock > 0 else Color("#ff6b6b"))
-		stock_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		v.add_child(stock_l)
-		var mk := _market_tag(s.id, 14)
-		if mk.text == "":
-			mk.text = "normal price"
-			mk.add_theme_color_override("font_color", Config.MUTED_TEXT)
-		mk.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		v.add_child(mk)
-		var b := _button("Buy  %d" % s.price, _buy.bind(i))
-		b.custom_minimum_size = Vector2(150, 40)
-		b.disabled = s.stock <= 0 or Game.coins < s.price
-		v.add_child(b)
-		shop_grid.add_child(card)
+		shop_grid.add_child(_cubby(i, Game.shop[i]))
+
+
+## One cubby on the shelf: the rock, how many are in stock, its name and a coloured price tag. Click = buy one.
+func _cubby(i: int, s: Dictionary) -> Button:
+	var b := Button.new()
+	b.custom_minimum_size = Vector2(124, 132)
+	b.focus_mode = Control.FOCUS_NONE
+	b.pressed.connect(_buy.bind(i))
+	var empty: bool = s.stock <= 0
+	b.disabled = empty or Game.coins < s.price
+	b.tooltip_text = "%s - %d coins%s" % [Game.rock_name(s.id), s.price, "  (out of stock until the next restock)" if empty else "  (%d in stock)" % s.stock]
+	var sb := _skin("cubby", Vector4i(3, 3, 3, 5), Vector4(4, 4, 4, 6))
+	if sb:
+		for st in ["normal", "hover", "pressed", "hover_pressed", "disabled"]:
+			var one := sb.duplicate() as StyleBoxTexture
+			one.modulate_color = {"hover": Color(1.25, 1.18, 1.1), "pressed": Color(0.85, 0.8, 0.75),
+					"hover_pressed": Color(0.9, 0.85, 0.8), "disabled": Color(0.8, 0.75, 0.72)}.get(st, Color.WHITE)
+			b.add_theme_stylebox_override(st, one)
+	var v := VBoxContainer.new()
+	v.set_anchors_preset(Control.PRESET_FULL_RECT)
+	v.offset_left = 8
+	v.offset_right = -8
+	v.offset_top = 8
+	v.offset_bottom = -14
+	v.add_theme_constant_override("separation", 0)
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.add_child(v)
+	var ic := _icon(Game.rock_texture(s.id), 62)
+	ic.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	ic.modulate = Color(0.35, 0.3, 0.3, 0.55) if empty else Color.WHITE
+	v.add_child(ic)
+	var name_l := _label(Game.rock_name(s.id), 16, Config.TEXT_COLOR if not empty else Config.MUTED_TEXT)
+	name_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	name_l.clip_text = true
+	v.add_child(name_l)
+	var tag := PanelContainer.new()  # the price sticker, coloured by how pricey the rock is
+	tag.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	tag.add_theme_stylebox_override("panel", _box(_tag_color(int(Config.ROCKS[s.id].price)), Config.TEXT_OUTLINE_COLOR, 2, 0, 1))
+	v.add_child(tag)
+	var pl := _label(str(s.price), 16, Config.TEXT_OUTLINE_COLOR)
+	pl.add_theme_constant_override("outline_size", 0)
+	pl.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0))
+	pl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	pl.custom_minimum_size.x = 54
+	tag.add_child(pl)
+	var st_l := _label("EMPTY" if empty else "x%d" % s.stock, 16, Config.SLICE_MISS_COLOR if empty else Config.ACCENT)
+	st_l.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	st_l.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	st_l.offset_right = -8
+	st_l.offset_top = 4
+	b.add_child(st_l)
+	for c in [v, ic, name_l, tag, pl, st_l]:
+		(c as Control).mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return b
+
+
+## Price sticker colours (like a parts organiser's labels): green cheap, blue, yellow, pink for the priciest.
+func _tag_color(price: int) -> Color:
+	if price < 60:
+		return Color("#91db69")
+	if price < 200:
+		return Color("#8fd3ff")
+	if price < 500:
+		return Color("#fbff86")
+	return Color("#f2a7c3")
 
 
 func _update_rock_text() -> void:
@@ -1182,6 +1328,161 @@ func _auto_place(prefer: String) -> void:
 	Game.place_rock(id)
 	rock_view.set_rock(id)
 	_update_rock_text()
+
+
+func _update_crush_btn() -> void:
+	var n := Game.rocks_total()
+	crush_btn.visible = n >= 2
+	crush_btn.text = "CRUSH ALL  (%d)" % n
+	crush_btn.disabled = _crush_fx != null
+
+
+## Crush All: every rock you have breaks in one go. The drops are all worked out at once (Game.crush_all),
+## then the screen goes black, zooms onto the rock on the anvil, it goes supernova and you see the lot.
+func _crush_all() -> void:
+	if _crush_fx != null or Game.rocks_total() < 1:
+		return
+	if rock_view.rock_id != "" and not rock_view.is_ready_to_hit():
+		return  # the last rock is still flying apart
+	if rock_view.rock_id == "" or Game.current_rock == "":
+		_auto_place(rock_view.rock_id)  # a rock on the anvil to zoom onto
+	var rect := rock_view.screen_rect()
+	var tex: Texture2D = rock_view.tex
+	var res := Game.crush_all()
+	var got: Dictionary = res.got
+	var by_worth: Array = got.keys()
+	by_worth.sort_custom(func(a, b): return got[a] * Game.ore_price(a) > got[b] * Game.ore_price(b))
+	var cols: Array[Color] = []
+	for id in by_worth.slice(0, 6):
+		cols.append(Config.ORES[id].color)
+	rock_view.set_rock("")
+	hint_label.text = ""
+	rock_title.text = ""
+	_crush_fx = CrushFx.new()
+	add_child(_crush_fx)
+	_crush_fx.play(tex, rect, cols)
+	_update_crush_btn()
+	Sfx.play("supernova")  # its boom lands right on the burst
+	_crush_fx.burst.connect(func(): _shake = Config.SCREEN_SHAKE_ON_BREAK * 2.0)
+	_crush_fx.revealed.connect(_show_crush_summary.bind(res))
+	_crush_fx.finished.connect(func():
+		_crush_fx = null
+		_auto_place("")
+		_refresh())
+
+
+## Everything that came out of the supernova, one tile per ore (however many rocks it was).
+func _show_crush_summary(res: Dictionary) -> void:
+	var got: Dictionary = res.got
+	var holder := CenterContainer.new()
+	holder.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_crush_fx.add_child(holder)
+	var panel := _panel(0)
+	holder.add_child(panel)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 10)
+	panel.add_child(v)
+	var head := _title("SUPERNOVA!", 44, Config.ACCENT)
+	head.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(head)
+	var sub := "Crushed %d rock%s" % [res.rocks, "" if res.rocks == 1 else "s"]
+	if res.saved > 0:
+		sub += "   (Silktouch saved %d: back in Your Rocks)" % res.saved
+	var sl := _label(sub, 18, Config.TEXT_COLOR)
+	sl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(sl)
+	var ids: Array = []
+	for id in Config.ORES:  # table order, like the Backpack
+		if got.has(id):
+			ids.append(id)
+	var cells: Array[Control] = []
+	var worth := 0
+	if ids.is_empty():
+		var none := _label("Nothing inside... not a single ore.", 18, Config.MUTED_TEXT)
+		none.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		v.add_child(none)
+		Sfx.play("drop_none")
+	else:
+		var cols := clampi(ids.size(), 1, 6)
+		var cell_size := Vector2(112, 112)
+		var rows := ceili(ids.size() / float(cols))
+		var sc := ScrollContainer.new()
+		sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		sc.custom_minimum_size = Vector2(cols * (cell_size.x + 8), minf(rows * (cell_size.y + 8), size.y * 0.45))
+		v.add_child(sc)
+		var grid := GridContainer.new()
+		grid.columns = cols
+		grid.add_theme_constant_override("h_separation", 8)
+		grid.add_theme_constant_override("v_separation", 8)
+		grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		sc.add_child(grid)
+		var rare_any := false
+		for id in ids:
+			var amount: int = got[id]
+			worth += amount * Game.ore_price(id)
+			var rare: bool = Config.ORES[id].get("rare", false)
+			rare_any = rare_any or rare
+			var cell := VBoxContainer.new()
+			cell.custom_minimum_size = cell_size
+			cell.alignment = BoxContainer.ALIGNMENT_CENTER
+			cell.add_theme_constant_override("separation", 2)
+			var ic := _icon(Game.ore_texture(id), 52)
+			ic.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+			cell.add_child(ic)
+			var al := _title("x%d" % amount, 22, Config.ORES[id].color)
+			al.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			cell.add_child(al)
+			var nm := _label(Game.ore_name(id), 13, Config.ACCENT if rare else Config.MUTED_TEXT)
+			nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			nm.clip_text = true
+			cell.add_child(nm)
+			cell.tooltip_text = "%s x%d  (%d coins)" % [Game.ore_name(id), amount, amount * Game.ore_price(id)]
+			grid.add_child(cell)
+			cell.set_meta("icon", ic)
+			cells.append(cell)
+		# they all pop in together (staggered a touch, but never longer than 0.6 s whatever the count)
+		var step := minf(0.06, 0.6 / ids.size())
+		for i in cells.size():
+			var cell := cells[i]
+			cell.modulate.a = 0.0
+			var tw := cell.create_tween()
+			tw.tween_interval(i * step)
+			tw.tween_property(cell, "modulate:a", 1.0, 0.18)
+		Sfx.play("drop_rare" if rare_any else "drop_common")
+		var wl := _label("Worth %d coins at today's prices  (in your Backpack)" % worth, 18, Config.ACCENT)
+		wl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		v.add_child(wl)
+	var ok := _button("Collect", func(): _close_crush(cells))
+	ok.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	ok.custom_minimum_size = Vector2(180, 52)
+	v.add_child(ok)
+	panel.pivot_offset = panel.get_combined_minimum_size() * 0.5
+	panel.scale = Vector2.ONE * 0.6
+	panel.create_tween().tween_property(panel, "scale", Vector2.ONE, 0.25).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+
+## Collect: the ores fly into the Backpack (one icon per kind, at most 12) and the black fades away.
+func _close_crush(cells: Array[Control]) -> void:
+	if _crush_fx == null:
+		return
+	Sfx.play("click")
+	var target := backpack_btn.global_position - global_position + backpack_btn.size * 0.5  # on top of the black
+	var k := 0
+	for cell in cells.slice(0, 12):
+		var src: TextureRect = cell.get_meta("icon")
+		var ic := _icon(src.texture, 52)
+		ic.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		ic.size = Vector2(52, 52)
+		ic.position = src.global_position - global_position
+		add_child(ic)
+		var tw := ic.create_tween()
+		tw.tween_interval(k * 0.04)
+		tw.tween_property(ic, "position", target - ic.size * 0.5, 0.5).set_ease(Tween.EASE_IN).set_trans(Tween.TRANS_QUAD)
+		tw.parallel().tween_property(ic, "scale", Vector2.ONE * 0.5, 0.5)
+		tw.tween_callback(ic.queue_free)
+		tw.tween_callback(_bump.bind(backpack_btn))
+		k += 1
+	_crush_fx.close()
 
 
 func _on_hit(_done: int, _total: int) -> void:
@@ -1351,10 +1652,150 @@ func _on_lucky_sale(ore_id: String, extra: int) -> void:
 func _on_trip_over() -> void:
 	if _dev:
 		return
-	await get_tree().create_timer(1.8).timeout
-	if on_wall and not tutorial.visible and not Game.trip_active:
+	await get_tree().create_timer(Config.GAME_OVER_DELAY).timeout  # let the last moment play out first
+	if Game.trip_active or _game_over != null:
+		return
+	if tutorial.visible:  # the tutorial is up: just go back quietly
+		if on_wall:
+			wall_view.reset_run()
+			_go_main()
+		return
+	_show_game_over(Game.last_run)
+
+
+## "YOU HAVE NO MORE FUEL": the run was lost. Shows what the run did (stats, best combo...), what it had and
+## what was taken back. "Back to the surface" closes it and takes you to the rock.
+func _show_game_over(r: Dictionary) -> void:
+	if on_wall:
+		wall_view.reset_run()  # the wall stops under the screen
+	Sfx.play("fizzle")
+	var root := Control.new()
+	_game_over = root
+	root.mouse_filter = Control.MOUSE_FILTER_STOP
+	add_child(root)
+	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var dim := ColorRect.new()
+	dim.color = Color(0.02, 0.01, 0.01, 0.94)
+	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(dim)
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	dim.offset_left = -120  # past the edges, so the screen shake never shows the window behind
+	dim.offset_top = -120
+	dim.offset_right = 120
+	dim.offset_bottom = 120
+	var center := CenterContainer.new()
+	root.add_child(center)
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 12)
+	center.add_child(v)
+	var rows: Array[Control] = []
+
+	var head := _title("YOU HAVE NO MORE FUEL", 52, Config.GAME_OVER_COLOR)
+	head.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	head.add_theme_constant_override("outline_size", Config.TEXT_OUTLINE_SIZE + 4)
+	v.add_child(head)
+	rows.append(head)
+	var why := _label(str(r.get("reason", "")).strip_edges(), 18, Config.MUTED_TEXT)
+	why.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	why.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	why.custom_minimum_size.x = 620
+	v.add_child(why)
+	rows.append(why)
+
+	# the stats
+	var panel := _panel(620)
+	panel.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	v.add_child(panel)
+	rows.append(panel)
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 40)
+	grid.add_theme_constant_override("v_separation", 6)
+	panel.add_child(grid)
+	var moves := int(r.get("moves", 0))
+	var perfects := int(r.get("perfects", 0))
+	var best_combo := int(r.get("best_combo", 0))
+	var secs := int(r.get("time", 0.0))
+	var stats := [
+		["Cave", Game.cave_name(str(r.get("cave", Game.cave)))],
+		["Furthest stage", "Stage %d  (started on %d)" % [int(r.get("best_stage", 1)), int(r.get("start_stage", 1))]],
+		["Highest combo", "x%d  (coins x%s)" % [best_combo, _num(minf(1.0 + maxi(best_combo - 1, 0) * Config.COMBO_BONUS_PER_STEP, Config.COMBO_MAX_MULTIPLIER))]],
+		["Walls broken", str(int(r.get("walls", 0)))],
+		["Moves", "%d  (%d perfect, %d%%)" % [moves, perfects, roundi(100.0 * perfects / moves) if moves > 0 else 0]],
+		["Coins mined", str(int(r.get("coins", 0)))],
+		["Lives lost", _num(float(r.get("lives_lost", 0.0)))],
+		["Time in the mine", "%d:%02d" % [secs / 60, secs % 60]],
+	]
+	for st in stats:
+		var k := _label(st[0], 18, Config.MUTED_TEXT)
+		grid.add_child(k)
+		var val := _title(st[1], 20, Config.ACCENT if st[0] == "Highest combo" else Config.TEXT_COLOR)
+		grid.add_child(val)
+
+	# the loot: what it had, what was taken
+	var lost: Dictionary = r.get("lost", {})
+	var keep := float(lost.get("keep", 0.0))
+	var lt := "Taken back: %d coins, %d ores & gems, %d rocks" % [int(lost.get("coins", 0)), int(lost.get("ores", 0)), int(lost.get("rocks", 0))]
+	if int(lost.get("coins", 0)) + int(lost.get("ores", 0)) + int(lost.get("rocks", 0)) <= 0:
+		lt = "The run had no loot to lose."
+	var ll := _label(lt, 18, Config.SLICE_MISS_COLOR)
+	ll.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(ll)
+	rows.append(ll)
+	if keep > 0.0:
+		var kl := _label("Minecart / Backpack saved %d%% of it." % roundi(keep * 100.0), 16, Config.ACCENT)
+		kl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		v.add_child(kl)
+		rows.append(kl)
+
+	# the artifacts you went down with
+	var items: Array = r.get("items", [])
+	if not items.is_empty():
+		var ir := HBoxContainer.new()
+		ir.alignment = BoxContainer.ALIGNMENT_CENTER
+		ir.add_theme_constant_override("separation", 8)
+		ir.add_child(_label("Artifacts:", 16, Config.MUTED_TEXT))
+		for id in items:
+			if Config.ITEMS.has(id):
+				ir.add_child(_item_icon(id, 40))
+		v.add_child(ir)
+		rows.append(ir)
+
+	var back := _button("Back to the surface", _close_game_over)
+	back.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	back.custom_minimum_size = Vector2(300, 56)
+	v.add_child(back)
+	rows.append(back)
+
+	# fade in: the black first, then each row in turn
+	root.modulate.a = 0.0
+	root.create_tween().tween_property(root, "modulate:a", 1.0, 0.5)
+	for i in rows.size():
+		var c := rows[i]
+		c.modulate.a = 0.0
+		var tw := c.create_tween()
+		tw.tween_interval(0.5 + i * 0.12)
+		tw.tween_property(c, "modulate:a", 1.0, 0.25)
+
+
+func _close_game_over() -> void:
+	if _game_over == null:
+		return
+	Sfx.play("click")
+	var g := _game_over
+	_game_over = null
+	if on_wall:
 		_go_main()
-		show_toast("Out of lives - your trip is over. Get a new ticket in Shop > Caves.")
+	var tw := g.create_tween()
+	tw.tween_property(g, "modulate:a", 0.0, 0.3)
+	tw.tween_callback(g.queue_free)
+	show_toast("Get a new ticket in Shop > Caves to go down again.")
+
+
+## 1.5 -> "1.5", 2.0 -> "2"
+func _num(x: float) -> String:
+	return str(int(x)) if is_equal_approx(x, roundf(x)) else "%.1f" % x
 
 
 func _sell(id: String, amount: int) -> void:
@@ -1375,10 +1816,10 @@ func _sell_all() -> void:
 
 func _open_shop(tab := "") -> void:
 	_close_overlays()
-	_rebuild_shop()
 	if tab != "":
 		_show_shop_tab(tab, false)
 	shop_overlay.visible = true
+	_rebuild_shop()
 	Sfx.play_music("shop")
 
 
@@ -1401,7 +1842,7 @@ func _close_overlays() -> void:
 
 
 func close_overlays_silent() -> void:
-	for o in [shop_overlay, backpack_overlay, settings_overlay, practice_overlay, mine_overlay]:
+	for o in [shop_overlay, backpack_overlay, settings_overlay, practice_overlay, mine_overlay, book_overlay]:
 		if o:
 			o.visible = false
 	Sfx.play_music("mine" if on_wall else "main")  # the shop's music fades back to this screen's
@@ -1430,6 +1871,8 @@ func _build_select_mine() -> void:
 	info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	info.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	top.add_child(info)
+	var book := _icon_button("book", "Artifacts", "Artifact Book: every artifact you can find on a run", _open_book)
+	top.add_child(book)
 	mine_claim_btn = _button("", _claim_ticket)
 	mine_claim_btn.custom_minimum_size = Vector2(230, 48)
 	top.add_child(mine_claim_btn)
@@ -1443,6 +1886,58 @@ func _build_select_mine() -> void:
 	sc.add_child(mine_list)
 
 
+## The Artifact Book: every artifact you can be offered on a run, what it does, and (on a run) which you hold.
+func _build_book() -> void:
+	var o := _make_overlay("Artifact Book", _close_overlays)
+	book_overlay = o[0]
+	var v: VBoxContainer = o[1]
+	var info := _label("Every time you clear a stage on a run, you're offered %d of these: take one. You hold %d at once; they last for the run. With your slots full, taking one swaps one of yours out - that one won't show up again for %d stages. Used-up ones come back after %d stages." % [
+			Config.ITEM_CHOICES, Config.ITEM_SLOTS, Config.SWAP_COOLDOWN, Config.CONSUMABLE_COOLDOWN], 16, Config.MUTED_TEXT)
+	info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	info.custom_minimum_size.x = 860
+	v.add_child(info)
+	var sc := ScrollContainer.new()
+	sc.custom_minimum_size = Vector2(880, 470)
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	v.add_child(sc)
+	book_list = GridContainer.new()
+	book_list.columns = 2
+	book_list.add_theme_constant_override("h_separation", 8)
+	book_list.add_theme_constant_override("v_separation", 8)
+	sc.add_child(book_list)
+
+
+func _open_book() -> void:
+	_close_overlays()
+	for c in book_list.get_children():
+		c.queue_free()
+	for id in Config.ITEMS:
+		var card := PanelContainer.new()
+		card.add_theme_stylebox_override("panel", slot_style)
+		card.custom_minimum_size = Vector2(430, 0)
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 10)
+		card.add_child(row)
+		var ic := _item_icon(id, 48)
+		ic.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+		row.add_child(ic)
+		var col := VBoxContainer.new()
+		col.add_theme_constant_override("separation", 0)
+		row.add_child(col)
+		var tag := ""
+		if Game.trip_active and Game.run_items.has(id):
+			tag = "   (you have it)"
+		elif Game.is_consumable(id):
+			tag = "   (used up once it's done)"
+		col.add_child(_label(Game.item_name(id) + tag, 20, Config.ACCENT))
+		var d := _label(Config.ITEMS[id].get("book", Config.ITEMS[id].text), 16, Config.TEXT_COLOR)
+		d.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		d.custom_minimum_size.x = 350
+		col.add_child(d)
+		book_list.add_child(card)
+	book_overlay.visible = true
+
+
 func _open_select_mine() -> void:
 	_close_overlays()
 	_fill_caves(mine_list)
@@ -1452,6 +1947,18 @@ func _open_select_mine() -> void:
 
 func _go_main() -> void:
 	_slide_to(false)
+
+
+## The wall's Back button. On a run, leaving the mine cashes out: the run ends and this cave starts again
+## from stage 1 next time - so it asks first.
+func _leave_mine() -> void:
+	if not Game.trip_active or wall_view.free_practice or wall_view.practice != "":
+		_go_main()
+		return
+	Sfx.play("click")
+	leave_confirm.dialog_text = "Leave the mine and cash out?\n\nYour run ends here and its loot is yours to keep%s, and %s starts again from Stage 1 next time." % [
+			" (the Midas pot of %d coins too)" % Game.run_pot if Game.run_pot > 0 else "", Game.cave_name()]
+	leave_confirm.popup_centered()
 
 
 func go_wall() -> void:
@@ -1524,15 +2031,47 @@ func _layout_screens() -> void:
 		menu_bar.position.y = 0.0 if not on_wall else -bar_h - 8.0
 	back_btn.size = back_btn.get_combined_minimum_size()
 	back_btn.position = Vector2(s.x - back_btn.size.x - Config.SAFE_BORDER, (s.y - back_btn.size.y) * 0.5)
+	dynamite_btn.size = dynamite_btn.get_combined_minimum_size()
+	dynamite_btn.position = Vector2(s.x - dynamite_btn.size.x - Config.SAFE_BORDER, back_btn.position.y - dynamite_btn.size.y - 12)
+	ram_btn.size = ram_btn.get_combined_minimum_size()
+	ram_btn.position = Vector2(back_btn.position.x - ram_btn.size.x - 12, back_btn.position.y + (back_btn.size.y - ram_btn.size.y) * 0.5)
+	ham_btn.size = ham_btn.get_combined_minimum_size()
+	wall_book_btn.size = wall_book_btn.get_combined_minimum_size()
+	wall_book_btn.position = Vector2(s.x - wall_book_btn.size.x - Config.SAFE_BORDER, back_btn.position.y + back_btn.size.y + 12)
+	ham_btn.position = Vector2(s.x - ham_btn.size.x - Config.SAFE_BORDER, wall_book_btn.position.y + wall_book_btn.size.y + 12)
+	items_hud.position = Vector2(Config.SAFE_BORDER + 6, 150)
+	rest_panel.size = rest_panel.get_combined_minimum_size()
+	rest_panel.position = ((s - rest_panel.size) * 0.5 + Vector2(30, 10)).round()
 
 
 func _on_action_done(perfect: bool, at: Vector2, combo: int, mult: float) -> void:
 	var pos := wall_view.global_position + at - fx_layer.global_position
 	var base := randi_range(Config.PERFECT_COINS_MIN, Config.PERFECT_COINS_MAX) if perfect else Config.GOOD_COINS
-	var coins := roundi(base * mult * Game.mine_coin_mult())
+	var coins := roundi(base * _mine_mult(mult))
 	if wall_view.practice != "":
 		coins = 0  # practice (and the tutorial) never pays
-	Game.add_coins(coins)
+	else:
+		Game.move_done()  # Midas grows every 3 moves
+		Game.note_move(perfect, combo)  # for the game over screen
+		if combo > 0 and combo % Config.COMBO_MILESTONE == 0:  # every 10 in a row: a bonus
+			var bonus := roundi(Config.COMBO_MILESTONE_COINS * (combo / Config.COMBO_MILESTONE) * _mine_mult(1.0))
+			if bonus > 0:
+				Game.mine_coins(bonus)
+				Sfx.play("drop_rare")
+				_float_text(pos + Vector2(0, -50), "COMBO %d!  +%d" % [combo, bonus], Config.ACCENT, 0.15)
+		var drop := Game.dwarven_drop()  # Dwarven Hands
+		for oid in drop:
+			_float_text(pos + Vector2(0, 40), "+%d %s" % [drop[oid], Game.ore_name(oid)], Config.ORES[oid].color, 0.25)
+		var found := Game.move_rocks(combo)  # Ring of Luck, Drill, Excavator, Miner's Permit, Philosopher's Stone
+		if not found.is_empty():
+			var paid := Game.give_rocks(found)
+			var n := Game._sum(found)
+			if paid > 0:
+				_float_text(pos + Vector2(0, 75), "Molerats ate %d rock%s: +%d" % [n, "s" if n > 1 else "", paid], Config.ACCENT, 0.35)
+			else:
+				var first: String = found.keys()[0]
+				_float_text(pos + Vector2(0, 75), ("+%d %s" % [n, Game.rock_name(first)]) if found.size() == 1 else "+%d rocks" % n, Config.ACCENT, 0.35)
+	Game.mine_coins(coins)
 	if coins > 0:
 		_bump(coin_label)
 	if perfect:
@@ -1541,6 +2080,361 @@ func _on_action_done(perfect: bool, at: Vector2, combo: int, mult: float) -> voi
 	else:
 		Sfx.play("slice_good")
 		_float_text(pos, "Good" + ("  +%d" % coins if coins > 0 else ""), Config.TEXT_COLOR, 0.0)
+
+
+## The mine's coin multiplier. Normally: combo x (cave & stage coins). With Midas Touch: cave x MIDAS + combo.
+## Then x every artifact that multiplies coins (Golden Apple, Draupnir, Familiar Circle, Art of Peace...).
+func _mine_mult(combo_mult: float) -> float:
+	var m := maxf(combo_mult, 1.0) * Game.mine_coin_mult()
+	if Game.has_item("midas_touch") and Game.trip_active:
+		m = Game.mine_coin_mult() * Game.midas + combo_mult
+	return m * Game.artifact_coin_mult()
+
+
+# ================================================================== the run (items, rests, Midas)
+func _build_run_ui() -> void:
+	# the items you hold, top left of the wall (under the combo)
+	items_hud = HBoxContainer.new()
+	items_hud.add_theme_constant_override("separation", 6)
+	items_hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	wall_screen.add_child(items_hud)
+	dynamite_btn = _button("", func(): wall_view.use_dynamite())
+	dynamite_btn.custom_minimum_size = Vector2(72, 64)
+	dynamite_btn.add_theme_font_size_override("font_size", Config.font_px(16))
+	dynamite_btn.tooltip_text = "Dynamite (D): blow straight through this wall"
+	wall_screen.add_child(dynamite_btn)
+	ram_btn = _button("", func(): wall_view.use_ram())
+	ram_btn.custom_minimum_size = Vector2(72, 64)
+	ram_btn.add_theme_font_size_override("font_size", Config.font_px(16))
+	ram_btn.tooltip_text = "Ram (R): crash through %d walls at once" % Config.RAM_WALLS
+	wall_screen.add_child(ram_btn)
+	ham_btn = _button("HAM", func(): wall_view.eat_ham())
+	ham_btn.custom_minimum_size = Vector2(72, 64)
+	ham_btn.add_theme_font_size_override("font_size", Config.font_px(16))
+	ham_btn.tooltip_text = "Great Ham (H): eat it for +%d lives" % int(Config.GREAT_HAM_LIVES)
+	wall_screen.add_child(ham_btn)
+	wall_book_btn = _icon_button("book", "Book", "Artifact Book: what every artifact does (the mine waits while it's open)", _open_book)
+	wall_screen.add_child(wall_book_btn)
+	# the break between walls
+	rest_panel = PanelContainer.new()
+	rest_panel.visible = false
+	wall_screen.add_child(rest_panel)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 8)
+	rest_panel.add_child(v)
+	rest_title = _title("", 30, Config.ACCENT)
+	rest_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(rest_title)
+	rest_info = _label("", 16, Config.MUTED_TEXT)
+	rest_info.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(rest_info)
+	rest_offer_box = VBoxContainer.new()
+	rest_offer_box.add_theme_constant_override("separation", 6)
+	v.add_child(rest_offer_box)
+	rest_offer_note = _label("", 16, Config.TEXT_COLOR)
+	rest_offer_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	rest_offer_box.add_child(rest_offer_note)
+	rest_offer_row = HBoxContainer.new()
+	rest_offer_row.add_theme_constant_override("separation", 10)
+	rest_offer_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	rest_offer_box.add_child(rest_offer_row)
+	var skip := _button("Skip", func():
+		Sfx.play("click")
+		_swap_pick = ""
+		Game.skip_offer())
+	skip.add_theme_font_size_override("font_size", Config.font_px(16))
+	skip.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	rest_offer_box.add_child(skip)
+	var hold := HBoxContainer.new()
+	hold.add_theme_constant_override("separation", 8)
+	hold.alignment = BoxContainer.ALIGNMENT_CENTER
+	v.add_child(hold)
+	rest_items_row = HBoxContainer.new()
+	rest_items_row.add_theme_constant_override("separation", 6)
+	hold.add_child(rest_items_row)
+	rest_extra_box = VBoxContainer.new()  # Coin of Deceit, bringing used-up consumables back
+	rest_extra_box.add_theme_constant_override("separation", 4)
+	v.add_child(rest_extra_box)
+	rest_midas_box = HBoxContainer.new()
+	rest_midas_box.add_theme_constant_override("separation", 10)
+	rest_midas_box.alignment = BoxContainer.ALIGNMENT_CENTER
+	v.add_child(rest_midas_box)
+	rest_midas_label = _label("", 16, Config.ACCENT)
+	rest_midas_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	rest_midas_box.add_child(rest_midas_label)
+	var cash := _button("Cash out & leave", _cash_out)
+	cash.add_theme_font_size_override("font_size", Config.font_px(16))
+	cash.tooltip_text = "End this run and keep everything it gave you (coins, ores, rocks, a Midas pot). This cave starts again from Stage 1."
+	rest_midas_box.add_child(cash)
+	rest_continue = _button("Next wall  (SPACE)", func():
+		wall_view.end_rest())
+	rest_continue.custom_minimum_size = Vector2(300, 48)
+	rest_continue.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	v.add_child(rest_continue)
+
+
+## An item as a small square (icon, or its first letters if there's no art yet), with its name and text as a tooltip.
+func _item_icon(id: String, s: int) -> Control:
+	var path := UI_DIR + "items/%s.png" % id
+	var c: Control
+	if ResourceLoader.exists(path):
+		c = _icon(load(path), s)
+	else:
+		var l := _label(Game.item_name(id).substr(0, 2).to_upper(), 16, Config.ACCENT)
+		l.custom_minimum_size = Vector2(s, s)
+		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		c = l
+	c.tooltip_text = "%s: %s" % [Game.item_name(id), Config.ITEMS[id].text]
+	c.mouse_filter = Control.MOUSE_FILTER_PASS
+	return c
+
+
+## Items / Midas / Dynamite changed: the wall's items bar and the Dynamite button.
+func _refresh_run() -> void:
+	if items_hud == null:
+		return
+	for c in items_hud.get_children():
+		c.queue_free()
+	var run := Game.trip_active and wall_view.practice == ""
+	if run:
+		for i in Game.run_items.size():
+			var box := PanelContainer.new()
+			box.add_theme_stylebox_override("panel", slot_style)
+			box.add_child(_item_icon(Game.run_items[i], 32))
+			if Game._stack(i) > 1:
+				box.add_child(_stack_badge(Game._stack(i)))
+			items_hud.add_child(box)
+	dynamite_btn.visible = run and Game.has_item("dynamite")
+	dynamite_btn.text = "TNT\nx%d" % Game.dynamite
+	dynamite_btn.disabled = Game.dynamite <= 0
+	ram_btn.visible = run and Game.run_items.has("ram")
+	ram_btn.text = "RAM\nx%d" % Game.ram_uses
+	ram_btn.disabled = Game.ram_uses <= 0
+	ham_btn.visible = run and Game.run_items.has("great_ham")
+	if rest_panel.visible:
+		_fill_rest_panel()
+
+
+func _stack_badge(n: int) -> Label:
+	var l := _label("x%d" % n, 16, Config.ACCENT)
+	l.size_flags_horizontal = Control.SIZE_SHRINK_END
+	l.size_flags_vertical = Control.SIZE_SHRINK_END
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return l
+
+
+## The break's panel: what's next, the items on offer (after a stage), your items, Midas' cash-out.
+func _fill_rest_panel() -> void:
+	var cleared: bool = wall_view._rest_cleared
+	rest_title.text = ("STAGE %d CLEARED!" % (Game.stage - 1)) if cleared else "Wall down - take a breather"
+	rest_info.text = "Your light, wick and timers wait for you.   Next: Stage %d, wall %d / %d" % [
+			Game.stage, mini(Game.stage_walls + 1, Game.walls_need), Game.walls_need]
+	var offer: Array = Game.item_offer if Game.trip_active else []
+	rest_offer_box.visible = not offer.is_empty()
+	for c in rest_offer_row.get_children():
+		c.queue_free()
+	var full := Game.free_slots() <= 0
+	if _swap_pick != "":
+		rest_offer_note.text = "Your slots are full: click one of YOUR artifacts below to swap it for %s (the one you swap out won't show up for %d stages)" % [Game.item_name(_swap_pick), Config.SWAP_COOLDOWN]
+	else:
+		rest_offer_note.text = "Pick an artifact for this run (1 of %d)%s" % [offer.size(), "  -  slots full: you'll swap one out" if full else ""]
+	for id in offer:
+		rest_offer_row.add_child(_item_card(id))
+	# your artifacts, in order (Copy copies the one on its right, Catto the one on its left: < > move them)
+	for c in rest_items_row.get_children():
+		c.queue_free()
+	var head := _label("Your artifacts  %d / %d:" % [Game.run_items.size(), Game.run_slots], 16, Config.TEXT_COLOR)
+	head.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	rest_items_row.add_child(head)
+	for i in Game.run_items.size():
+		var id: String = Game.run_items[i]
+		var col := VBoxContainer.new()
+		col.add_theme_constant_override("separation", 2)
+		rest_items_row.add_child(col)
+		var b := Button.new()
+		b.focus_mode = Control.FOCUS_NONE
+		b.custom_minimum_size = Vector2(52, 52)
+		b.disabled = _swap_pick == ""  # only clickable while you're choosing what to swap out
+		var cc := CenterContainer.new()
+		cc.set_anchors_preset(Control.PRESET_FULL_RECT)
+		cc.offset_bottom = -4  # clear of the button's raised underside
+		cc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		b.add_child(cc)
+		var ic := _item_icon(id, 32)
+		ic.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		cc.add_child(ic)
+		if Game._stack(i) > 1:
+			var badge := _stack_badge(Game._stack(i))
+			badge.position = Vector2(30, 26)  # bottom-right corner of the 52 px button
+			b.add_child(badge)
+		b.tooltip_text = ic.tooltip_text
+		var slot := i
+		b.pressed.connect(func():
+			Sfx.play("buy")
+			Game.take_item(_swap_pick, slot)
+			_swap_pick = "")
+		col.add_child(b)
+		var arrows := HBoxContainer.new()
+		arrows.add_theme_constant_override("separation", 2)
+		col.add_child(arrows)
+		for d in [-1, 1]:
+			var mv := _button("<" if d < 0 else ">", func():
+				Sfx.play("click")
+				Game.move_item(slot, d))
+			mv.add_theme_font_size_override("font_size", Config.font_px(16))
+			mv.custom_minimum_size = Vector2(25, 26)
+			mv.disabled = (d < 0 and i == 0) or (d > 0 and i == Game.run_items.size() - 1)
+			arrows.add_child(mv)
+		if id == "draupnir":
+			var sell := _button("Sell %d" % roundi(Config.DRAUPNIR_SELL * Game.reward_mult()), func():
+				var got := Game.sell_draupnir(slot)
+				if got > 0:
+					Sfx.play("sell")
+					show_toast("Sold a Draupnir: +%d coins" % got)
+					_bump(coin_label))
+			sell.add_theme_font_size_override("font_size", Config.font_px(16))
+			col.add_child(sell)
+	if Game.run_items.is_empty():
+		rest_items_row.add_child(_label("none yet", 16, Config.MUTED_TEXT))
+	_fill_rest_extras()
+	rest_midas_box.visible = Game.trip_active
+	var loot := Game.run_loot()
+	var at_stake := "At stake: %d coins, %d ores & gems, %d rocks" % [loot.coins, loot.ores, loot.rocks]
+	if Game.loot_keep() > 0.0:
+		at_stake += "  (%d%% safe)" % roundi(Game.loot_keep() * 100.0)
+	if Game.has_item("midas_touch"):
+		rest_midas_label.text = "MIDAS x%s   -   %s   (lose the run and it's gone)" % [String.num(Game.midas, 2), at_stake]
+	else:
+		rest_midas_label.text = at_stake + "   (lose the run and it's gone)"
+	wall_view.rest_hold = not offer.is_empty()
+	rest_continue.disabled = wall_view.rest_hold
+	rest_continue.text = "Pick or skip an artifact first" if wall_view.rest_hold else "Next wall  (SPACE)"
+	rest_panel.reset_size()
+
+
+## The break's extras: flip the Coin of Deceit; pay to bring used-up consumables back early.
+func _fill_rest_extras() -> void:
+	for c in rest_extra_box.get_children():
+		c.queue_free()
+	if not Game.trip_active:
+		return
+	if Game.has_item("coin_of_deceit"):
+		var row := HBoxContainer.new()
+		row.alignment = BoxContainer.ALIGNMENT_CENTER
+		row.add_theme_constant_override("separation", 10)
+		rest_extra_box.add_child(row)
+		var stake := Game.run_earned + Game.run_pot
+		var l := _label("Coin of Deceit: heads doubles this run's %d coins, tails loses them" % stake, 16, Config.TEXT_COLOR)
+		l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(l)
+		var flip := _button("Flip!", func():
+			var heads := Game.flip_coin()
+			Sfx.play("drop_rare" if heads else "life_lost")
+			show_toast("HEADS!  Doubled to %d" % (Game.run_earned + Game.run_pot) if heads else "TAILS...  This run's coins are gone"))
+		flip.add_theme_font_size_override("font_size", Config.font_px(16))
+		flip.disabled = stake <= 0
+		row.add_child(flip)
+	if Game.run_items.has("pet_rock") and Game.pet_feeds > 0:
+		var prow := HBoxContainer.new()
+		prow.alignment = BoxContainer.ALIGNMENT_CENTER
+		prow.add_theme_constant_override("separation", 10)
+		rest_extra_box.add_child(prow)
+		var meal := Game.pet_rock_meal()
+		var pl := _label("Pet Rock (%d feed%s left): %s" % [Game.pet_feeds, "" if Game.pet_feeds == 1 else "s",
+				"eats %d rocks from your bag for +1 life" % Game._sum(meal) if not meal.is_empty() else "your bag isn't worth %d coins yet" % Config.PET_ROCK_PRICE], 16, Config.TEXT_COLOR)
+		pl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		prow.add_child(pl)
+		var feed := _button("Feed it", func():
+			if Game.feed_pet_rock():
+				Sfx.play("buy")
+				show_toast("The Pet Rock munches happily:  +1 life (%s)" % _lives_text()))
+		feed.add_theme_font_size_override("font_size", Config.font_px(16))
+		feed.disabled = meal.is_empty() or Game.lives >= Config.MAX_LIVES
+		feed.tooltip_text = "Takes the cheapest rocks in your bag until they're worth %d coins (today's prices)" % Config.PET_ROCK_PRICE
+		prow.add_child(feed)
+	var swapped: Array = []
+	for id in Game.run_swapped:
+		if Game.swap_wait(id) > 0:
+			swapped.append("%s (%d)" % [Game.item_name(id), Game.swap_wait(id)])
+	if not swapped.is_empty():
+		var srow := _label("Swapped out, back in N stages: " + ", ".join(swapped), 16, Config.MUTED_TEXT)
+		srow.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		rest_extra_box.add_child(srow)
+	var cooling: Array = []
+	for id in Game.run_used:
+		if Game.consumable_wait(id) > 0:
+			cooling.append("%s (%d)" % [Game.item_name(id), Game.consumable_wait(id)])
+	if not cooling.is_empty():
+		var row2 := HBoxContainer.new()
+		row2.alignment = BoxContainer.ALIGNMENT_CENTER
+		row2.add_theme_constant_override("separation", 10)
+		rest_extra_box.add_child(row2)
+		var l2 := _label("Used up, back in N stages: " + ", ".join(cooling), 16, Config.MUTED_TEXT)
+		l2.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row2.add_child(l2)
+		var cost := Game.unlock_cost()
+		var unl := _button("Bring them back: %d" % cost, func():
+			if Game.unlock_consumables():
+				Sfx.play("buy")
+				show_toast("Used-up artifacts can show up again"))
+		unl.add_theme_font_size_override("font_size", Config.font_px(16))
+		unl.tooltip_text = "Costs %d%% of the coins you've earned this run" % roundi(Config.CONSUMABLE_UNLOCK_COST * 100.0)
+		row2.add_child(unl)
+
+
+func _item_card(id: String) -> Button:
+	var b := Button.new()
+	b.focus_mode = Control.FOCUS_NONE
+	b.custom_minimum_size = Vector2(230, 168)
+	b.toggle_mode = true
+	b.button_pressed = id == _swap_pick
+	b.pressed.connect(func():
+		if Game.free_slots() <= 0:
+			Sfx.play("click")
+			_swap_pick = id  # full: now pick which of yours goes
+			_fill_rest_panel()
+		else:
+			Sfx.play("buy")
+			_swap_pick = ""
+			Game.take_item(id))
+	var v := VBoxContainer.new()
+	v.set_anchors_preset(Control.PRESET_FULL_RECT)
+	v.offset_left = 10
+	v.offset_right = -10
+	v.offset_top = 8
+	v.offset_bottom = -12
+	v.add_theme_constant_override("separation", 2)
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.add_child(v)
+	var top := HBoxContainer.new()
+	top.add_theme_constant_override("separation", 8)
+	top.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.add_child(top)
+	var ic := _item_icon(id, 40)
+	ic.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	top.add_child(ic)
+	var n := _title(Game.item_name(id), 22, Config.ACCENT)
+	n.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	n.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	n.custom_minimum_size.x = 150
+	n.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	top.add_child(n)
+	var d := _label(Config.ITEMS[id].text, 14, Config.TEXT_COLOR)
+	d.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	d.custom_minimum_size.x = 206
+	d.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.add_child(d)
+	return b
+
+
+func _cash_out() -> void:
+	var got := Game.cash_out()
+	Sfx.play("sell")
+	wall_view.reset_run()
+	_go_main()
+	show_toast(("Cashed out: +%d coins!  " % got if got > 0 else "Cashed out.  ") + "%s starts again from Stage 1." % Game.cave_name())
+	_bump(coin_label)
 
 
 func _on_failed(reason: String, lost_combo: int, at: Vector2) -> void:
@@ -1557,8 +2451,8 @@ func _on_missed(reason: String, at: Vector2) -> void:
 func _on_wall_down(at: Vector2) -> void:
 	Sfx.play("wall_break")
 	_shake = Config.SCREEN_SHAKE_ON_BREAK
-	var bonus := roundi(Config.WALL_BREAK_BONUS * Game.mine_coin_mult())
-	Game.add_coins(bonus)
+	var bonus := 0 if wall_view.practice != "" else roundi(Config.WALL_BREAK_BONUS * _mine_mult(0.0))
+	Game.mine_coins(bonus)
 	var pos := wall_view.global_position + at - fx_layer.global_position
 	var count := "" if wall_view.practice != "" else "  (%d / %d)" % [mini(Game.stage_walls + 1, Game.walls_need), Game.walls_need]
 	_float_text(pos, "Wall down!" + count + ("  +%d" % bonus if bonus > 0 else ""), Config.ACCENT, 0.0)
@@ -1579,7 +2473,7 @@ func _on_life_lost(stage_down: bool, at: Vector2) -> void:
 
 ## The flame reached full blaze: a quick, soft flash over the whole screen.
 func _on_full_light() -> void:
-	if not on_wall:
+	if not on_wall or wall_view.peaceful():
 		return
 	flash_rect.size = size
 	flash_rect.modulate.a = 1.0
@@ -1956,24 +2850,30 @@ func _dev_shots(dir: String) -> void:
 	print("music with the shop open: %s" % Sfx.current_music)
 	_close_overlays()
 	print("music after closing it: %s" % Sfx.current_music)
-	# --- market, tickets, upgrades
-	Game.move_market()
-	print("market after one move: ", Game.market.values().slice(0, 8))
+	# --- market (the same for everyone: worked out from the Philippine-time restock number), tickets, upgrades
+	var w0 := Game.market_window()
+	print("restock #%d, Philippine time %s, next in %.0fs, same prices worked out twice: %s" % [w0, Game.market_clock(),
+			Game.restock_left(), Game.market_for(w0) == Game.market_for(w0)])
 	var lo := 9.0
 	var hi := 0.0
 	var at_min := 0
 	var at_max := 0
 	var n_items := 0
-	for i in 300:
-		Game.move_market()
-		for k in Game.market:
-			lo = minf(lo, Game.market[k])
-			hi = maxf(hi, Game.market[k])
-			at_min += 1 if Game.market[k] <= Config.MARKET_MIN else 0
-			at_max += 1 if Game.market[k] >= Config.MARKET_MAX else 0
+	for i in 150:
+		var mk := Game.market_for(w0 + i)
+		for k in mk:
+			lo = minf(lo, mk[k])
+			hi = maxf(hi, mk[k])
+			at_min += 1 if mk[k] <= Config.MARKET_MIN else 0
+			at_max += 1 if mk[k] >= Config.MARKET_MAX else 0
 			n_items += 1
-	print("market over 300 restocks: min %.2f max %.2f, at the floor %.1f%%, at the cap %.1f%%" % [lo, hi, 100.0 * at_min / n_items, 100.0 * at_max / n_items])
-	Game.restock(true)
+	print("market over 150 restocks: min %.2f max %.2f, at the floor %.1f%%, at the cap %.1f%%" % [lo, hi, 100.0 * at_min / n_items, 100.0 * at_max / n_items])
+	var in_stock := 0
+	for s in Game.shop:
+		in_stock += 1 if s.stock > 0 else 0
+	print("shelf: %d rocks, %d in stock now, cheapest %s %d, priciest %s %d" % [Game.shop.size(), in_stock,
+			Game.shop[0].id, Game.shop[0].price, Game.shop[-1].id, Game.shop[-1].price])
+	Game.refresh_shop()
 	print("tickets %d, trip %s, can start without one: %s" % [Game.ticket_count(), Game.trip_active, Game.start_trip()])
 	print("claim free: %s, claim again: %s, free ticket in %.0fs" % [Game.claim_free_ticket(), Game.claim_free_ticket(), Game.free_ticket_left()])
 	print("buy ticket: %s (coins %d), tickets %d" % [Game.buy_ticket(), Game.coins, Game.ticket_count()])

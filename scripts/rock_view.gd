@@ -84,6 +84,16 @@ func _rock_rect() -> Rect2:
 	return Rect2(bottom - Vector2(s.x * sq.x * 0.5, s.y * sq.y) + shake, s * sq)
 
 
+## Where the rock sits on screen at its resting size (global coordinates; no shake or squash).
+func screen_rect() -> Rect2:
+	var xf := get_global_transform()
+	if img == null:
+		return Rect2(xf * (size * 0.5), Vector2.ZERO)
+	var sz := Vector2(img.get_width(), img.get_height()) * _px()
+	var r := Rect2(Vector2((size.x - sz.x) * 0.5, (size.y - sz.y) * 0.5), sz)
+	return Rect2(xf * r.position, sz * xf.get_scale())
+
+
 func _solid(p: Vector2i) -> bool:
 	return p.x >= 0 and p.y >= 0 and p.x < img.get_width() and p.y < img.get_height() and img.get_pixelv(p).a > 0.1
 

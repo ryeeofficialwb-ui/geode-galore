@@ -1,11 +1,13 @@
-"""Packs every rock into ONE texture and every ore & gem into ONE texture, sorted by price.
+"""Packs every rock into ONE texture and every ore & gem into ONE texture.
 
-    py -3.12 tools/slice_sheets.py
+    py -3.12 tools/slice_sheets.py            (ores & gems; the rocks texture is left alone if it exists)
+    py -3.12 tools/slice_sheets.py --rocks    (also re-cuts assets/rocks/rocks.png from the drawing sheet)
 
 art_source/sheet_v3.png : your drawing sheet, 32x32 cells. What each cell is, is listed in GRID below.
 Writes:
-    assets/rocks/rocks.png   all rocks, cheapest first (left to right, top to bottom), 32x32 cells, 10 a row
-                             (kept 32x32, so big rocks stay big)
+    assets/rocks/rocks.png   all rocks in id order (rock_01, rock_02 ... left to right), 32x32 cells, 10 a row
+                             (kept 32x32, so big rocks stay big). If you draw / export this file yourself,
+                             keep that order: the tool only overwrites it with --rocks.
     assets/ores/ores.png     all ores (cheapest first), then all gems (cheapest first), 32x32 cells, 10 a row
                              (each one trimmed to a square and centred in its cell)
     scripts/sprite_atlas.gd  where each one sits in those textures (the game reads this; don't edit by hand)
@@ -14,6 +16,7 @@ Add a new rock / ore: draw it in a free cell of the drawing sheet, write its nam
 ORES in scripts/config.gd, then run this.
 """
 import re
+import sys
 from pathlib import Path
 from PIL import Image
 
@@ -49,7 +52,7 @@ def cut(sheet, r, c):
     return sheet.crop((c * CELL, r * CELL, (c + 1) * CELL, (r + 1) * CELL))
 
 
-def pack(items, path):
+def pack(items, path, write=True):
     """items: [(name, image <= 32x32)] -> one texture, each image centred in its own 32x32 cell.
     Returns {name: (x, y, w, h)}."""
     rows = max(1, (len(items) + COLS - 1) // COLS)
@@ -60,8 +63,9 @@ def pack(items, path):
         y = (i // COLS) * CELL + (CELL - img.height) // 2
         out.paste(img, (x, y))
         regions[name] = (x, y, img.width, img.height)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    out.save(path)
+    if write:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        out.save(path)
     return regions
 
 
@@ -94,13 +98,14 @@ def main():
             if name not in prices:
                 print("not in config.gd (sorted last):", name)
     big = (10 ** 9, True)
-    rocks.sort(key=lambda it: (prices.get(it[0], big)[0], it[0]))
+    rocks.sort(key=lambda it: it[0])  # id order: rock_01, rock_02, ...
     ores.sort(key=lambda it: (prices.get(it[0], big)[1], prices.get(it[0], big)[0], it[0]))  # ores, then gems
-    rock_regions = pack(rocks, ROOT / "assets/rocks/rocks.png")
+    rock_file = ROOT / "assets/rocks/rocks.png"
+    rock_regions = pack(rocks, rock_file, write="--rocks" in sys.argv or not rock_file.exists())
     ore_regions = pack(ores, ROOT / "assets/ores/ores.png")
     (ROOT / "scripts/sprite_atlas.gd").write_text(
         "## Made by tools/slice_sheets.py - don't edit by hand (run the tool again instead).\n"
-        "## Where each rock sits in assets/rocks/rocks.png and each ore / gem in assets/ores/ores.png.\n\n"
+        "## Where each rock sits in assets/rocks/rocks.png (rock_01 .. rock_30, 10 a row, in id order) and each ore / gem in assets/ores/ores.png.\n\n"
         f"const ROCKS := {gd_dict(rock_regions)}\n\n"
         f"const ORES := {gd_dict(ore_regions)}\n",
         encoding="utf-8")

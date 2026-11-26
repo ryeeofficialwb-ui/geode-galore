@@ -1,93 +1,150 @@
-"""Balances the rocks: sets each rock's "quality" (and, if it has to, its "rolls") in scripts/config.gd so
-that what's inside is worth about VALUE_RATIO x its shop price, on average.
+"""Balances the rocks and writes the whole ROCKS table in scripts/config.gd.
 
-    py -3.12 tools/tune_drops.py                        (prints the result for every rock)
-    py -3.12 tools/tune_drops.py rock_21 rock_22 --write  (tunes only those rocks and writes them into config.gd)
+    py -3.12 tools/tune_drops.py            (prints the result)
+    py -3.12 tools/tune_drops.py --write    (also writes it into config.gd)
 
-It reads the ORES and ROCKS tables straight from config.gd (prices, chances, amounts, bonuses), so add
-ores / rocks there first, then run this. Only "rolls" and "quality" of each rock are changed; everything
-else stays as you wrote it.
-How drops work in the game (see Game.drop_chance):
-  - every ore has a chance on the CHEAPEST rocks and a chance on the BEST rocks ("chance": [cheap, best]);
-  - every rock has a "quality" from 0 to 1 that slides between the two, and a few "rolls";
-  - a rock can have a "bonus" that multiplies the chance of a few ores (its speciality).
-(Upgrades and the market aren't counted: this is the value at normal prices with no upgrades.)
+What it does, for every rock:
+  - PRICE by size: the rock's art is measured (its solid pixels on assets/rocks/rocks.png). The smallest
+    rock costs PRICE_MIN, the biggest PRICE_MAX, the rest in between (sizes spread out exponentially).
+  - ORES: each rock can only drop a few ores now - a handful of cheap ones, one or two around its price
+    and sometimes a jackpot worth more than the rock. Every ore is in at least one rock.
+  - CHANCES: tuned so a rock pays back its price about half the time (a 50/50: break one and it's a coin
+    flip whether what's inside is worth more than you paid).
+  - STOCK: the pricier the rock, the less often it's in stock (stock_chance) and the fewer there are.
+  - HITS and ROLLS grow with size.
+Names stay as they are in config.gd. Ore prices / amounts come from ORES in config.gd.
+(Upgrades and the market aren't counted: this is at normal prices with no upgrades.)
 """
+import math
+import random
 import re
 import sys
 from pathlib import Path
+from PIL import Image
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG = ROOT / "scripts/config.gd"
-VALUE_RATIO = 1.6  # what the rocks were balanced to by hand (Indev 0.3: most are worth 1.4 - 2x their price)
+ATLAS = ROOT / "scripts/sprite_atlas.gd"
+SHEET = ROOT / "assets/rocks/rocks.png"
+PRICE_MIN = 10
+PRICE_MAX = 1000
+PAYBACK = 0.5          # chance a rock's ores are worth at least its price
+STOCK_CHANCE = (0.9, 0.06)  # chance to be in stock at each restock: cheapest .. priciest
+STOCK_MAX = (8, 1)          # most in stock: cheapest .. priciest
+SAMPLES = 30000
 
 
 def read_ores(src):
     body = re.search(r"^const ORES := \{.*?\n(.*?)^\}", src, re.M | re.S).group(1)
     ores = {}
-    for m in re.finditer(r'^\t"([a-z0-9_]+)": \{.*?"sell_price": (\d+).*?"chance": \[([\d.]+), ([\d.]+)\], "amount": \[(\d+), (\d+)\]',
-                         body, re.M):
-        oid, price, lo, hi, amin, amax = m.groups()
-        ores[oid] = (int(price), float(lo), float(hi), (int(amin) + int(amax)) / 2.0)
+    for m in re.finditer(r'^\t"([a-z0-9_]+)": \{.*?"sell_price": (\d+).*?"amount": \[(\d+), (\d+)\]', body, re.M):
+        ores[m.group(1)] = (int(m.group(2)), int(m.group(3)), int(m.group(4)))
     return ores
 
 
-def read_rocks(src):
+def read_names(src):
     body = re.search(r"^const ROCKS := \{.*?\n(.*?)^\}", src, re.M | re.S).group(1)
-    rocks = []
-    for line in body.splitlines():
-        m = re.match(r'^\t"(rock_\d+)": \{"name": "([^"]+)", "price": (\d+).*?"rolls": (\d+), "quality": ([\d.]+)', line)
-        if not m:
-            continue
-        bonus = {}
-        b = re.search(r'"bonus": \{([^}]*)\}', line)
-        if b:
-            for k, v in re.findall(r'"([a-z0-9_]+)": ([\d.]+)', b.group(1)):
-                bonus[k] = float(v)
-        rocks.append((m.group(1), m.group(2), int(m.group(3)), int(m.group(4)), float(m.group(5)), bonus))
-    return rocks
+    return dict(re.findall(r'^\t"(rock_\d+)": \{"name": "([^"]+)"', body, re.M))
 
 
-def ev(ores, quality, rolls, bonus):
-    total = 0.0
-    for oid, (price, lo, hi, amount) in ores.items():
-        ch = min((lo + (hi - lo) * quality) * bonus.get(oid, 1.0), 100.0) / 100.0
-        total += ch * amount * price
-    return total * rolls
+def sizes():
+    im = Image.open(SHEET).convert("RGBA")
+    src = ATLAS.read_text(encoding="utf-8").split("const ORES")[0]
+    out = {}
+    for n, x, y, w, h in re.findall(r'"(rock_\d+)": Rect2\((\d+), (\d+), (\d+), (\d+)\)', src):
+        x, y, w, h = map(int, (x, y, w, h))
+        out[n] = sum(1 for p in im.crop((x, y, x + w, y + h)).getdata() if p[3] > 128)
+    return out
 
 
-def p_empty(ores, quality, rolls, bonus):
-    p = 1.0
-    for oid, (_price, lo, hi, _a) in ores.items():
-        p *= 1.0 - min((lo + (hi - lo) * quality) * bonus.get(oid, 1.0), 100.0) / 100.0
-    return p ** rolls
+def nice(p):
+    step = 1 if p < 20 else 5 if p < 100 else 10 if p < 500 else 25
+    return int(round(p / step) * step)
+
+
+def pick_ores(rid, price, ores):
+    rng = random.Random(rid)
+    by_price = sorted(ores, key=lambda o: ores[o][0])
+    def band(lo, hi):
+        return [o for o in by_price if lo < ores[o][0] <= hi]
+    cheap = band(price / 10.0, price / 2.0) or by_price[:3]
+    mid = band(price / 2.0, price * 1.5)
+    jack = band(price * 1.5, price * 4.0)
+    chosen = rng.sample(cheap, min(3, len(cheap)))
+    if len(chosen) < 2:  # the cheapest rocks: take the cheapest ores
+        chosen = by_price[:3]
+    if mid:
+        chosen += rng.sample(mid, min(2, len(mid)))
+    if jack and rng.random() < 0.7:
+        chosen.append(rng.choice(jack))
+    return list(dict.fromkeys(chosen))
+
+
+def value_samples(drops, rolls, ores, rng, n):
+    out = []
+    for _ in range(n):
+        v = 0
+        for _r in range(rolls):
+            for o, (c, a, b) in drops.items():
+                if rng.random() * 100.0 < c:
+                    v += rng.randint(a, b) * ores[o][0]
+        out.append(v)
+    return out
+
+
+def tune(rid, price, chosen, rolls, ores):
+    weights = {o: (price / ores[o][0]) ** 0.8 for o in chosen}
+    def make(s):
+        return {o: (min(95.0, weights[o] * s), ores[o][1], ores[o][2]) for o in chosen}
+    lo, hi = 0.0, 200.0
+    for _ in range(26):
+        s = (lo + hi) / 2
+        vals = value_samples(make(s), rolls, ores, random.Random(1), SAMPLES // 10)
+        if sum(1 for v in vals if v >= price) / len(vals) < PAYBACK:
+            lo = s
+        else:
+            hi = s
+    drops = make(hi)
+    vals = value_samples(drops, rolls, ores, random.Random(2), SAMPLES)
+    pay = sum(1 for v in vals if v >= price) / len(vals)
+    return {o: (round(c, 3 if c < 1 else 2), a, b) for o, (c, a, b) in drops.items()}, pay, sum(vals) / len(vals)
 
 
 def main():
     src = CONFIG.read_text(encoding="utf-8")
     ores = read_ores(src)
-    print(f"{len(ores)} ores / gems")
-    only = [a for a in sys.argv[1:] if a.startswith("rock_")]
-    for rid, name, price, rolls, old_q, bonus in read_rocks(src):
-        if only and rid not in only:
-            continue
-        target = price * VALUE_RATIO
-        while ev(ores, 1.0, rolls, bonus) < target:
-            rolls += 1
-        lo, hi = 0.0, 1.0
-        for _ in range(40):
-            mid = (lo + hi) / 2
-            if ev(ores, mid, rolls, bonus) < target:
-                lo = mid
-            else:
-                hi = mid
-        q = round(hi, 2)
-        print(f"{rid} {name:16s} price {price:4d}  rolls {rolls}  quality {old_q:.2f} -> {q:.2f}"
-              f"  worth ~{ev(ores, q, rolls, bonus):6.1f}  empty {p_empty(ores, q, rolls, bonus) * 100:4.1f}%")
-        src = re.sub(r'(\t"%s": \{[^\n]*?"rolls": )\d+(, "quality": )[\d.]+' % rid, r"\g<1>%d\g<2>%s" % (rolls, q), src, count=1)
+    names = read_names(src)
+    size = sizes()
+    amin, amax = min(size.values()), max(size.values())
+    rows = []
+    for rid in sorted(size, key=lambda r: (size[r], r)):
+        t = (size[rid] - amin) / max(amax - amin, 1)
+        price = PRICE_MIN if t <= 0 else PRICE_MAX if t >= 1 else nice(PRICE_MIN * (PRICE_MAX / PRICE_MIN) ** t)
+        rows.append([rid, t, price, pick_ores(rid, price, ores)])
+    # every ore must be in at least one rock: add it to the rock whose price suits it best
+    used = {o for r in rows for o in r[3]}
+    for o in sorted(set(ores) - used, key=lambda o: ores[o][0]):
+        best = min(rows, key=lambda r: abs(math.log(r[2] / ores[o][0])) + (5 if len(r[3]) >= 7 else 0))
+        best[3].append(o)
+    lines = []
+    print("%-8s %-14s %5s %4s  %-6s %-5s  %s" % ("id", "name", "size", "price", "stock", "pays", "ores"))
+    for rid, t, price, chosen in rows:
+        rolls = 1 if price < 60 else 2 if price < 300 else 3
+        drops, pay, avg = tune(rid, price, chosen, rolls, ores)
+        logt = math.log(price / PRICE_MIN) / math.log(PRICE_MAX / PRICE_MIN)
+        sc = round(STOCK_CHANCE[0] * (STOCK_CHANCE[1] / STOCK_CHANCE[0]) ** logt, 2)
+        sm = max(1, round(STOCK_MAX[0] + (STOCK_MAX[1] - STOCK_MAX[0]) * logt))
+        hmin = 2 + round(4 * t)
+        d = ", ".join('"%s": [%s, %d, %d]' % (o, c, a, b) for o, (c, a, b) in sorted(drops.items(), key=lambda kv: ores[kv[0]][0]))
+        lines.append('\t"%s": {"name": "%s", "price": %d, "stock_chance": %s, "stock_max": %d, "hits_min": %d, "hits_max": %d, "rolls": %d, "drops": {%s}},'
+                     % (rid, names[rid], price, sc, sm, hmin, hmin + 2, rolls, d))
+        print("%-8s %-14s %5d %5d  %4.0f%%x%d  %3.0f%%  avg %5.0f  %s" % (rid, names[rid], size[rid], price, sc * 100, sm, pay * 100, avg, ", ".join(drops)))
     if "--write" in sys.argv:
-        CONFIG.write_text(src, encoding="utf-8", newline="")
-        print("wrote", CONFIG)
+        crlf = "\r\n" in src
+        src = src.replace("\r\n", "\n")
+        new = re.sub(r"(^const ROCKS := \{[^\n]*\n)(.*?)(^\})", lambda m: m.group(1) + "\n".join(lines) + "\n" + m.group(3), src, count=1, flags=re.M | re.S)
+        CONFIG.write_text(new.replace("\n", "\r\n") if crlf else new, encoding="utf-8", newline="")
+        print("wrote ROCKS into", CONFIG)
 
 
 if __name__ == "__main__":

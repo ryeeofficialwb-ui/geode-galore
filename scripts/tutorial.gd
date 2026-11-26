@@ -116,7 +116,7 @@ func _tips() -> Dictionary:
 		"mine": {"title": "Short on coins?", "screen": "main", "target": func(): return m.mine_btn.get_global_rect().grow(6),
 			"text": "Earn coins down the Mine. Every trip needs a ticket for that cave: there's a free %s ticket every %d minutes in Shop > Caves." % [Game.cave_name(Game.first_cave()), int(Config.FREE_TICKET_SECONDS / 60.0)]},
 		"lighter": {"title": "It's dark down here", "screen": "wall", "practice": "flick", "nodim": true,
-			"text": "Flick SPACE (or tap the lighter) to light it. The light fades: that's your timer. Flick when the FLICK bar is in the gold zone to top it up - but not while it blazes full, or you flood it (-1/2 life)."},
+			"text": "Flick SPACE (or tap the lighter) to light it. The light fades: that's your timer. The FLICK bar fills once per heartbeat: flick once a beat, while it's in the gold zone, to top it up - but not while it blazes full, or you flood it (-1/2 life)."},
 		"wick": {"title": "Your WICK", "screen": "wall", "target": wick_box,
 			"text": "This bar is your wick: the most light your lighter can have. It BURNS DOWN while a move waits for you, and flicking can't light the wall brighter than it. FINISH the move and it fills right back up. Too slow and it burns out: the lighter dies."},
 		"danger": {"title": "Finish the move!", "screen": "wall", "target": wick_box,
@@ -157,7 +157,7 @@ func tip(id: String, now_only := false) -> void:
 
 func _can_show(id: String) -> bool:
 	if visible or main.shop_overlay.visible or main.backpack_overlay.visible or main.settings_overlay.visible \
-			or main.practice_overlay.visible or main.mine_overlay.visible:
+			or main.practice_overlay.visible or main.mine_overlay.visible or main.book_overlay.visible:
 		return false
 	var want: String = _tips().get(id, {}).get("screen", "main")
 	return (want == "wall") == main.on_wall

@@ -121,6 +121,55 @@ save("pry", mix(0.5, ([v * 0.4 for v in sweep(180, 420, 0.25, 4, square)], 0, 0.
                 (sweep(260, 90, 0.2, 18), 0.22, 1.0)))
 # timeout: combo lost - descending three-note buzz
 save("timeout", mix(0.55, *[([v * 0.6 for v in sweep(f, f * 0.97, 0.16, 8, square)], k * 0.14, 1.0) for k, f in enumerate([392, 330, 262])]), peak=0.55)
+# scream: the Mandrake's shriek - a shrill wavering wail that rises then cracks downwards, with breath noise
+def _scream(d=0.65):
+    tot = n(d); ph = 0.0; out = []
+    for i in range(tot):
+        t = i / tot
+        f = 900 + 700 * math.sin(math.pi * min(t / 0.7, 1.0)) - (400 * (t - 0.7) / 0.3 if t > 0.7 else 0)
+        f *= 1 + 0.06 * math.sin(2 * math.pi * 23 * i / SR)  # vibrato
+        ph += 2 * math.pi * f / SR
+        v = 0.6 * math.sin(ph) + 0.25 * math.sin(2 * ph) + 0.15 * square(3 * ph)
+        out.append(v * env(i, tot, attack=0.03, release=0.12))
+    return out
+save("scream", mix(0.7, (_scream(), 0, 1.0), (noise(0.65, 3, 2), 0, 0.25)), peak=0.55)
+# supernova: Crush All - a shimmering chord charges up, gets sucked down in pitch (the implosion), then a huge
+# low boom whose pitch keeps falling, with debris crackle. The boom lands at NOVA_AT (crush_fx.gd's BURST_AT).
+NOVA_AT = 1.75
+def _nova_charge(d=1.6):
+    tot = n(d); phs = [0.0, 0.0, 0.0]; out = []
+    for i in range(tot):
+        t = i / tot
+        trem = 0.65 + 0.35 * math.sin(2 * math.pi * (4 + 26 * t * t) * i / SR)  # wobble speeds up
+        v = 0.0
+        for k, (f0, f1) in enumerate([(110, 880), (165, 1320), (220, 1760)]):
+            phs[k] += 2 * math.pi * (f0 * (f1 / f0) ** (t ** 1.6)) / SR
+            v += math.sin(phs[k]) * (0.5 if k == 0 else 0.3)
+        out.append(v * trem * t * t * env(i, tot, attack=0.05, release=0.02))
+    return out
+def _nova_suck(d=0.15):  # everything collapses down in pitch
+    tot = n(d); ph = 0.0; out = []
+    for i in range(tot):
+        t = i / tot
+        ph += 2 * math.pi * (1760 * (60 / 1760) ** t) / SR
+        out.append((math.sin(ph) + 0.4 * square(ph)) * (1 - t) ** 0.5 * env(i, tot, attack=0.002, release=0.01))
+    return out
+def _nova_crackle(d=1.6, count=28):
+    out = [0.0] * n(d)
+    for _ in range(count):
+        at = n(rnd.uniform(0.05, d - 0.1)); g = rnd.uniform(0.2, 0.6) * (1 - at / len(out))
+        for j, v in enumerate(noise(rnd.uniform(0.01, 0.04), 120)):
+            if at + j < len(out): out[at + j] += v * g
+    return out
+save("supernova", mix(4.4,
+    (_nova_charge(), NOVA_AT - 0.15 - 1.6, 0.7),
+    (noise(1.6, None, 40), NOVA_AT - 0.15 - 1.6, 0.35),        # rumble under the charge
+    (_nova_suck(), NOVA_AT - 0.15, 0.8),
+    (noise(2.4, 2.2, 3), NOVA_AT, 1.0),                         # the blast
+    (sweep(95, 26, 2.6, 1.5), NOVA_AT, 1.3),                    # sub boom, still falling
+    (noise(2.5, 1.4, 14), NOVA_AT, 0.7),                        # long low roar
+    (sweep(2200, 260, 1.6, 2.5), NOVA_AT, 0.18),                # glittering tail going down
+    (_nova_crackle(), NOVA_AT + 0.25, 1.0)), peak=0.85)
 
 # music: calm 4-chord pad loop (16 s). Loops seamlessly because every chord fades in and out.
 chords = [(220.0, 261.63, 329.63), (174.61, 220.0, 261.63), (196.0, 246.94, 293.66), (164.81, 207.65, 246.94)]
