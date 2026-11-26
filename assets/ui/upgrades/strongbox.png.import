@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://f4jsh0jsg3tr"
-path="res://.godot/imported/sheet_v3.png-eacd98b71f73613b99fabc0c79e779e5.ctex"
+uid="uid://q1o1l4bpd5la"
+path="res://.godot/imported/strongbox.png-e9fb7df71de2a0f6b699bb56e919393f.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://art_source/sheet_v3.png"
-dest_files=["res://.godot/imported/sheet_v3.png-eacd98b71f73613b99fabc0c79e779e5.ctex"]
+source_file="res://assets/ui/upgrades/strongbox.png"
+dest_files=["res://.godot/imported/strongbox.png-e9fb7df71de2a0f6b699bb56e919393f.ctex"]
 
 [params]
 

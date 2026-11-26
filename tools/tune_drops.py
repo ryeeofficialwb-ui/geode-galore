@@ -8,8 +8,9 @@ What it does, for every rock:
     rock costs PRICE_MIN, the biggest PRICE_MAX, the rest in between (sizes spread out exponentially).
   - ORES: each rock can only drop a few ores now - a handful of cheap ones, one or two around its price
     and sometimes a jackpot worth more than the rock. Every ore is in at least one rock.
-  - CHANCES: tuned so a rock pays back its price about half the time (a 50/50: break one and it's a coin
-    flip whether what's inside is worth more than you paid).
+  - CHANCES: tuned so a rock's ores are worth TARGET_RETURN of its price on AVERAGE (1.05 = the house
+    loses 5% at the start: you win less than half the breaks, but the jackpots make up for it).
+    Upgrades push this up: see UPGRADES in config.gd (about 2x at half levels, 4x maxed).
   - STOCK: the pricier the rock, the less often it's in stock (stock_chance) and the fewer there are.
   - HITS and ROLLS grow with size.
 Names stay as they are in config.gd. Ore prices / amounts come from ORES in config.gd.
@@ -28,7 +29,7 @@ ATLAS = ROOT / "scripts/sprite_atlas.gd"
 SHEET = ROOT / "assets/rocks/rocks.png"
 PRICE_MIN = 10
 PRICE_MAX = 1000
-PAYBACK = 0.5          # chance a rock's ores are worth at least its price
+TARGET_RETURN = 1.05   # what a rock's ores are worth on average, x its price (no upgrades, normal prices)
 STOCK_CHANCE = (0.9, 0.06)  # chance to be in stock at each restock: cheapest .. priciest
 STOCK_MAX = (8, 1)          # most in stock: cheapest .. priciest
 SAMPLES = 30000
@@ -96,18 +97,19 @@ def tune(rid, price, chosen, rolls, ores):
     weights = {o: (price / ores[o][0]) ** 0.8 for o in chosen}
     def make(s):
         return {o: (min(95.0, weights[o] * s), ores[o][1], ores[o][2]) for o in chosen}
+    def mean(drops):  # exact average worth of one break
+        return rolls * sum(c / 100.0 * (a + b) / 2.0 * ores[o][0] for o, (c, a, b) in drops.items())
     lo, hi = 0.0, 200.0
-    for _ in range(26):
+    for _ in range(40):
         s = (lo + hi) / 2
-        vals = value_samples(make(s), rolls, ores, random.Random(1), SAMPLES // 10)
-        if sum(1 for v in vals if v >= price) / len(vals) < PAYBACK:
+        if mean(make(s)) < price * TARGET_RETURN:
             lo = s
         else:
             hi = s
-    drops = make(hi)
+    drops = {o: (round(c, 3 if c < 1 else 2), a, b) for o, (c, a, b) in make(hi).items()}
     vals = value_samples(drops, rolls, ores, random.Random(2), SAMPLES)
     pay = sum(1 for v in vals if v >= price) / len(vals)
-    return {o: (round(c, 3 if c < 1 else 2), a, b) for o, (c, a, b) in drops.items()}, pay, sum(vals) / len(vals)
+    return drops, pay, mean(drops)
 
 
 def main():

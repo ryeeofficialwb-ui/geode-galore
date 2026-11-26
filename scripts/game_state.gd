@@ -32,6 +32,7 @@ var rocks_broken := 0
 var tutorial_done := false  # stays done after Reset
 var tips_seen := {}       # tip id -> true: tips that already popped up (kept through Reset)
 var show_tips := true     # Settings > Tips
+var color_circles := true # Settings > Coloured circles (each tap circle in its own colour)
 var stage := 1            # mining stage (checkpoint)
 var lives := 0.0          # lives left in this stage (halves count: flooding the lighter costs half a life)
 var stage_walls := 0      # walls broken in this stage
@@ -69,6 +70,7 @@ var pet_feeds := 0         # Pet Rock: feeds left before it wanders off
 var run_stats := {}        # this run so far, for the game over screen (see _new_stats)
 var last_run := {}         # the run that was just lost: its stats, what it had and what was taken (game over screen)
 var upgrades := {}        # upgrade id -> level
+var rebirths := 0         # Rebirths done (each: +REBIRTH_SLOTS artifact slots on every run; survives Rebirth, not Reset)
 var show_hints := true    # Settings > Hint text (kept through Reset)
 var market_prev := {}     # the market before the last restock (for the up / down trend)
 
@@ -127,10 +129,54 @@ func _new_game() -> void:
 	refresh_shop()
 
 
+## Reset: a brand new game - Rebirths too.
 func reset() -> void:
+	rebirths = 0
 	_new_game()
 	changed.emit()
 	save()
+
+
+# ------------------------------------------------------------------ rebirth
+## Artifact slots every run starts with: ITEM_SLOTS + REBIRTH_SLOTS for each Rebirth.
+func base_slots() -> int:
+	return Config.ITEM_SLOTS + rebirths * Config.REBIRTH_SLOTS
+
+
+## What the next Rebirth costs: {"coins": n, "ores": {ore id: n}} - REBIRTH_GROWTH x more for each one done.
+func rebirth_cost() -> Dictionary:
+	var k := pow(Config.REBIRTH_GROWTH, rebirths)
+	var o := {}
+	for id in Config.REBIRTH_ORES:
+		o[id] = roundi(int(Config.REBIRTH_ORES[id]) * k)
+	return {"coins": roundi(Config.REBIRTH_COINS * k), "ores": o}
+
+
+## "" = you can Rebirth now, else why not.
+func rebirth_blocker() -> String:
+	if rebirths >= Config.REBIRTH_MAX:
+		return "All %d Rebirths done" % Config.REBIRTH_MAX
+	if trip_active:
+		return "Finish your run first"
+	var c := rebirth_cost()
+	if coins < int(c.coins):
+		return "Not enough coins"
+	for id in c.ores:
+		if int(ores.get(id, 0)) < int(c.ores[id]):
+			return "Not enough %s" % ore_name(id)
+	return ""
+
+
+## Rebirth: pay for it, then the whole game starts over (coins, rocks, ores, upgrades, caves, tickets) with one
+## more artifact slot on every run. Settings, tips and the tutorial stay done.
+func rebirth() -> bool:
+	if rebirth_blocker() != "":
+		return false
+	rebirths += 1
+	_new_game()
+	changed.emit()
+	save()
+	return true
 
 
 # ------------------------------------------------------------------ market (supply & demand)
@@ -392,8 +438,10 @@ func wall_cleared() -> bool:
 					break
 			roll_offer()
 		# the cave may give you a pile of rocks from its tiers; bigger, likelier and richer on later stages ...
-		var chance := minf(float(cave_info().get("stone_chance", 0.0)) * (1.0 + Config.STAGE_STONE_CHANCE_GROWTH * (stage - 2)),
-				Config.STAGE_STONE_CHANCE_MAX)
+		# (Better Rock Piles: the pile chance, its cap and each rock's keep chance all x (1 + its %), never above 100%)
+		var piles := 1.0 + upgrade_value("rock_piles") / 100.0
+		var chance := minf(float(cave_info().get("stone_chance", 0.0)) * (1.0 + Config.STAGE_STONE_CHANCE_GROWTH * (stage - 2)) * piles,
+				minf(Config.STAGE_STONE_CHANCE_MAX * piles, 100.0))
 		if randf() * 100.0 < chance:
 			var cleared := stage - 1
 			rolled = Config.STAGE_ROCK_ROLLS + (cleared - 1) / maxi(Config.STAGE_ROCK_ROLLS_EVERY, 1)
@@ -401,7 +449,7 @@ func wall_cleared() -> bool:
 			for i in rolled:
 				if found_r.size() >= keep_max:
 					break
-				if randf() * 100.0 < Config.STAGE_ROCK_KEEP:
+				if randf() * 100.0 < minf(Config.STAGE_ROCK_KEEP * piles, 100.0):
 					found_r.append(_cave_rock(cleared))
 		# ... and Ticket Hungry a ticket for any cave
 		if randf() * 100.0 < upgrade_value("ticket_hungry"):
@@ -722,7 +770,7 @@ func unlock_consumables() -> bool:
 func _clear_run() -> void:
 	run_items = []
 	run_stacks = []
-	run_slots = Config.ITEM_SLOTS
+	run_slots = base_slots()
 	run_greed_done = false
 	item_offer = []
 	dynamite = 0
@@ -1047,9 +1095,11 @@ func fail_run(reason: String) -> void:
 	save()
 
 
-## The part of the run's loot Minecart / Backpack save if the run is lost (they add up, never above all of it).
+## The part of the run's loot Minecart / Backpack / the Strongbox upgrade save if the run is lost (they add up,
+## never above all of it).
 func loot_keep() -> float:
-	return clampf(Config.MINECART_KEEP * item_count("minecart") + Config.BACKPACK_KEEP * item_count("backpack"), 0.0, 1.0)
+	return clampf(Config.MINECART_KEEP * item_count("minecart") + Config.BACKPACK_KEEP * item_count("backpack")
+			+ upgrade_value("strongbox") / 100.0, 0.0, 1.0)
 
 
 ## The run was lost: everything it gave you is taken back - its coins (and a Midas pot), ores and rocks - except
@@ -1406,6 +1456,12 @@ func set_show_tips(on: bool) -> void:
 	save()
 
 
+func set_color_circles(on: bool) -> void:
+	color_circles = on
+	changed.emit()
+	save()
+
+
 func set_tutorial_done() -> void:
 	tutorial_done = true
 	save()
@@ -1593,6 +1649,7 @@ func save() -> void:
 	cfg.set_value("dwarves", "trip_active", trip_active)
 	cfg.set_value("run", "items", run_items)
 	cfg.set_value("run", "slots", run_slots)
+	cfg.set_value("dwarves", "rebirths", rebirths)
 	cfg.set_value("run", "greed_done", run_greed_done)
 	cfg.set_value("run", "offer", item_offer)
 	cfg.set_value("run", "dynamite", dynamite)
@@ -1616,6 +1673,7 @@ func save() -> void:
 	cfg.set_value("prefs", "show_hints", show_hints)
 	cfg.set_value("prefs", "tips_seen", tips_seen)
 	cfg.set_value("prefs", "show_tips", show_tips)
+	cfg.set_value("prefs", "color_circles", color_circles)
 	cfg.save(SAVE_PATH)
 
 
@@ -1643,6 +1701,7 @@ func _load() -> bool:
 	rocks_broken = cfg.get_value("game", "rocks_broken", 0)
 	tutorial_done = cfg.get_value("game", "tutorial_done", false)
 	upgrades = {}  # (loaded first: Pack of Fluid sets how many lives you can have)
+	rebirths = clampi(int(cfg.get_value("dwarves", "rebirths", 0)), 0, Config.REBIRTH_MAX)
 	var up: Dictionary = cfg.get_value("dwarves", "upgrades", {})
 	for id in up:
 		if Config.UPGRADES.has(id):
@@ -1663,6 +1722,7 @@ func _load() -> bool:
 	best_stage = maxi(stage, cfg.get_value("mine", "best_stage", 1))
 	show_hints = cfg.get_value("prefs", "show_hints", true)
 	show_tips = cfg.get_value("prefs", "show_tips", true)
+	color_circles = cfg.get_value("prefs", "color_circles", true)
 	tips_seen = {}
 	var ts = cfg.get_value("prefs", "tips_seen", null)
 	if ts is Dictionary:
@@ -1700,7 +1760,7 @@ func _load() -> bool:
 	pet_feeds = clampi(int(cfg.get_value("run", "pet_feeds", 0)), 0, Config.PET_ROCK_FEEDS)
 	var st = cfg.get_value("run", "stats", {})
 	run_stats = st if st is Dictionary and not st.is_empty() else _new_stats()
-	run_slots = maxi(Config.ITEM_SLOTS, int(cfg.get_value("run", "slots", Config.ITEM_SLOTS)))
+	run_slots = maxi(base_slots(), int(cfg.get_value("run", "slots", base_slots())))
 	run_greed_done = cfg.get_value("run", "greed_done", false)
 	item_offer = Array(cfg.get_value("run", "offer", [])).filter(func(i): return Config.ITEMS.has(i))
 	dynamite = clampi(int(cfg.get_value("run", "dynamite", 0)), 0, Config.DYNAMITE_MAX)

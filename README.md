@@ -97,8 +97,9 @@ Short on coins? Click **< Mine** on the left to go to the mining wall and earn c
 - **Market (supply & demand):** every time the shop restocks on its timer (every 5 minutes) demand shifts: every
   rock's shop price and every ore / gem's sell price moves up or down from where it was, drifting back towards
   normal over time. A price can never go above **200%** or below **10%** of its normal price. The Shop, Market and
-  Backpack colour prices **green when they're good for you** and **red when bad**: ores & gems are green above
-  normal (you sell for more), rocks are green below normal (cheaper to buy). Paying to restock early gives new
+  Backpack mark every price with a sign: **+ means good for you** (profit) and **- means bad** (a loss), in green
+  and red too. Ores & gems are + above normal (you sell for more), rocks are + below normal (cheaper to buy); every
+  cubby on the Rock Shop shelf has a big + or - for whether the rock is worth more inside than it costs. Paying to restock early gives new
   rocks but doesn't move the market, and **every paid restock costs x2.5 more** than the one before (25, 63, 156...)
   until the shop restocks by itself again (`INSTANT_RESTOCK_GROWTH`). Shop > Stock Prices shows a countdown to the
   next price change.
@@ -144,21 +145,22 @@ Short on coins? Click **< Mine** on the left to go to the mining wall and earn c
   out, the lighter dies and your combo goes with it. The **WICK** gauge in the bottom-right corner shows how much is left
   (a braided wick burning down with an ember on top; its frame flashes red when it's nearly gone).
 
-  **Timed flicks:** a flick only adds light if it's **timed**. The **FLICK** bar next to the lighter fills once per
+  **Timed flicks:** a flick only adds light if it's **timed**. The **FLICK** bar on the left edge of the screen fills once per
   **heartbeat**; flick when it reaches the **gold zone** near the top ("FLICK!"), once a beat. Too soon (spamming, or a
   second flick in the same beat) or too late fails: no light, a red flash, and it **burns some wick**
   (`FLICK_FAIL_WICK_COST`). The beat is your miner's **heart rate**, shown over the bar (a pixel heart and the BPM; the
   bar jolts on every beat). It never changes in the middle of a wall - only when a wall breaks: it starts at a resting
   heart (60 BPM, `HEART_REST_BPM`), each stage adds 10 (`HEART_STAGE_BPM`), and how you played the last wall moves it
   10 either way (`HEART_PERFORM_BPM`: mostly PERFECT = faster, sloppy and failing = calmer), never above a heart
-  under stress (180 BPM, `HEART_STRESS_BPM`). It only ever moves in steps of 10: 60, 70, 80 ... (`HEART_BPM_STEP`). A faster heart gets a bigger gold zone (`FLICK_ZONE_CALM` ..
+  under stress (180 BPM, `HEART_STRESS_BPM`). It only ever moves in steps of 10: 60, 70, 80 ... (`HEART_BPM_STEP`). A slower heart gets a bigger gold zone (`FLICK_ZONE_CALM` ..
   `FLICK_ZONE_STRESS`). A slow beat gives fewer flicks, so each good flick gives more light: timed perfectly,
   flicking brings the light back 1.8x as fast as it fades at any tempo (`FLICK_GAIN`), and never less than 3-5% a flick.
   While the flame is at full blaze the bar shows FULL (flicking floods it).
 
   **Feel the beat:** after every wall (when you leave the break) the next wall drops in and the view zooms in on the
   FLICK bar for 5 seconds (`BEAT_PRACTICE_TIME`) so you can practise the new heartbeat - flicks don't count for
-  anything. The last 3 seconds count down 3, 2, 1 (`BEAT_COUNTDOWN`), each with a screen flash; after 1 the moves start.
+  anything; the whole game goes dark except the bar (`BEAT_PRACTICE_DIM`). The last 3 seconds count down 3, 2, 1
+  (`BEAT_COUNTDOWN`): each one shakes the screen a bit and the red stress edges throb in; after 1 the moves start.
 
   **Deep Focus:** 5 PERFECT moves in a row (`DEEP_FOCUS_PERFECTS`) turns your flame **blue**. It stays blue until
   you break the streak (a move that isn't PERFECT, a miss, a mistimed flick, a flood, the light dying).
@@ -169,15 +171,19 @@ Short on coins? Click **< Mine** on the left to go to the mining wall and earn c
   **On phones there's no SPACE: tap the lighter.** On PC both work. The wall asks for one action at a time:
   | Action | What you do |
   |---|---|
-  | **TAP!** (stage 6+) | circles pop up, each with a ring closing in on it; tap each circle the moment its ring touches it. Rings close at different speeds, so tap whichever closes **first** (too early / too late misses that circle). A dotted line points from the circle closing now to the next one |
-  | **ZIGZAG!** (stage 2+) | press the glowing dot and crack along the zigzag, passing **every corner** (cutting straight across doesn't work) |
+  | **TAP!** (stage 6+) | circles pop up, each with a ring closing in on it; tap each circle the moment its ring touches it. They appear in the order you tap them: the first to show up is always the first to tap (too early / too late misses that circle). A long dashed line with an arrow points from the circle closing now to the next one; dotted lines show the order after that, and the lines never cross. Each circle has its own colour (Settings > Coloured circles turns it off) |
+  | **ZIGZAG!** (stage 2+) | press the glowing dot and crack along the zigzag, passing **every corner** (cutting straight across doesn't work). Every zigzag is different: 3-7 turns on the easy stages, up to 11 later on (`ZIGZAG_CORNERS_*`), short or long, narrow or wide, some bent into an arch (`ZIGZAG_CURVE_CHANCE`) and some with smooth rounded turns (`ZIGZAG_ROUND_CHANCE`) |
   | **SLASH!** (from stage 1: the first move) | one big, fast swipe along a long line (you have under a second once you press) |
   | **DRILL!** (stage 3+) | spam-click the same spot until the counter hits 0 |
   | **PRY!** (stage 4+) | hold on the wedge; a gauge fills; let go while it's in the **gold zone** (too long and it snaps). Every pry is different: the gauge starts anywhere round the ring, goes either way (the arrow), at its own speed, and may **speed up**, **slow down** or **stutter** (written under the wedge; `PRY_STYLES`) |
   | **TRACK!** (stage 6+) | a moving drill: keep clicking the circle as it drifts around the wall |
-  | **SWIRL!** (stage 5+) | trace the spiral from the glowing dot on the outside into the middle (no cutting across) |
+  | **SWIRL!** (stage 5+) | trace the spiral from the glowing dot on the outside into the middle (no cutting across). The spiral is drawn as one bright line with a glint running along it, and bright checkpoints |
   | **SLASH IT ALL!** (stage 6+) | one huge, very fast swipe right across the wall, edge to edge |
-  | **SPIN!** (stage 6+) | hold the button and spin your cursor round the circle, fast (like an osu! spinner); finish within the time shown |
+  | **SPIN!** (stage 6+) | hold the button and spin your cursor round the circle, fast (like an osu! spinner); finish within the time shown. The circle you spun breaks out of the wall and falls away, leaving a hole (`SPIN_CHUNK_SIZE`) |
+
+  **The wall breaks up as you go:** every finished move runs cracks in from the wall's edges - more, longer and thicker
+  the closer it is to coming down - and past the halfway mark chunks start falling out of it (`WALL_DAMAGE_CRACKS`,
+  `WALL_CHUNKS_FROM`).
 
   **Scaling difficulty:** the further you get, the more actions each wall takes (+1 every 2 stages, up to +6) and
   the more move styles show up: stages 1-5 add one each (Slash, Zigzag, Drill, Pry, Swirl), stage 6 brings in
@@ -204,7 +210,7 @@ Short on coins? Click **< Mine** on the left to go to the mining wall and earn c
   **lose a life** and the stage starts over on its first wall. It's meant to be hard: roughly 1 save in 4-6 for a
   sharp player, and much less once later stages add strikes.
 
-  **Stages:** each stage gives you **3 lives** (shown as lighters, top right; a half-dark lighter = half a life).
+  **Stages:** each stage gives you **3 lives** (shown as lighters, top left; a half-dark lighter = half a life).
   Not relighting in time costs a whole life and restarts the stage; flooding costs half a life and doesn't. Break
   **3-5 walls** (rolled for each stage, shown at the top: `WALLS_PER_STAGE_MIN` / `_MAX`) to clear the stage and go up. After every wall (and every stage cleared) you get a **break**: nothing
   burns down until you click or press SPACE for the next wall (`REST_BETWEEN_WALLS`). Your stage is a checkpoint, but lose all 3 lives before clearing it and you
@@ -237,7 +243,7 @@ Every line you can change ends with `# configurable`. Save the file and press Pl
 | Shop (the shelf) | `RESTOCK_SECONDS`, `MARKET_TIME_OFFSET` (the clock everyone shares: Philippine time), `MARKET_HISTORY`, instant-restock cost and growth; each rock's `stock_chance` / `stock_max` are in `ROCKS` |
 | Artifacts | `ITEM_SLOTS`, `ITEM_CHOICES`, the `ITEMS` table (names, texts, `once`, `stack`), consumables' cooldown / unlock cost, Midas (`MIDAS_*`), Dynamite and Ram keys / charges, and each artifact's numbers (`HARD_AS_NAILS_CHANCE`, `ADRENALINE_CHANCE`, `CATS_EYES_*`, `DRUNK_*`, `ROCK_ARTIFACTS`, `GAMBIT_*`, `MUSHROOM_WALLS`, `UMBRELLA_*`, `DROPPED_LIGHTER_TIME`, `MOLERATS_PAY`, `DRAUPNIR_*`, `DIAMOND_PICK_MOVES`, `FAMILIAR_*`, `DICE_GOLD`, `GOLDEN_APPLE_COINS`, `STANDARD_GLOVES_LIGHT`, `ART_OF_PEACE_COINS`...) |
 | Market | lowest / highest price (`MARKET_MIN` / `MARKET_MAX`, 10% / 200%), how far prices jump each restock (`MARKET_SWING`), how fast they drift back to normal (`MARKET_PULL`), the green / red colours |
-| Dwarven Shop & caves | `TICKET_PRICE`, `FREE_TICKET_SECONDS`, `START_TICKETS`, the `CAVES` table (name, wall tile, ticket price, coins, fuel, stone chance), `CAVE_STONE_ANY_EQUAL`, the `UPGRADES` table (name, first / max bonus, levels, cost, cost growth), `FOOLS_GOLD_BONUS`, `FOOLS_GOLD_GEMS` |
+| Dwarven Shop & caves | `TICKET_PRICE`, `FREE_TICKET_SECONDS`, `START_TICKETS`, the `CAVES` table (name, wall tile, ticket price, coins, fuel, stone chance), `CAVE_STONE_ANY_EQUAL`, the `UPGRADES` table (name, first / max bonus, levels, cost, cost growth), `FOOLS_GOLD_BONUS`, `FOOLS_GOLD_GEMS`, Rebirth (`REBIRTH_MAX`, `REBIRTH_SLOTS`, `REBIRTH_COINS`, `REBIRTH_ORES`, `REBIRTH_GROWTH`) |
 | `ROCKS` table | name, price, how often it's in stock (`stock_chance`, `stock_max`), hit count, rolls and **drops** (the only ores it can give, with their chances) - written by `tools/tune_drops.py` |
 | `ORES` table | name, sell price, **type** (`"ore"` or `"gem"`: which upgrades boost it), rare (sparkle sound), text color, amount |
 | Audio | volume and pitch variation per sound, music track per screen, fade time, starting music / sound-effect volume |
@@ -251,8 +257,9 @@ Favor upgrades) multiply every chance.
 
 **Balancing:** `py -3.12 tools/tune_drops.py --write` rewrites the whole `ROCKS` table: it measures each rock's
 art (solid pixels on `rocks.png`) and prices the smallest at 10 coins and the biggest at 1000, gives each rock a
-few cheap ores, one or two around its price and sometimes a jackpot, and tunes the chances so a rock pays back
-its price **about half the time** (a 50/50). The pricier the rock, the rarer it's in stock. Run it without
+few cheap ores, one or two around its price and sometimes a jackpot, and tunes the chances so a rock's ores are
+worth **105% of its price on average** (`TARGET_RETURN`: you win a bit under half the breaks, the jackpots make up
+for it). The 5 rock upgrades take that to ~200% at half their levels and ~400% maxed (see `UPGRADES`). The pricier the rock, the rarer it's in stock. Run it without
 `--write` to just print the result. (It keeps the rocks' names; everything else in `ROCKS` is rewritten.)
 
 > Starting coins / rocks only apply to a **new** save. Press **Reset** in the game, or set
@@ -503,6 +510,7 @@ tools/make_music.py    compresses + encrypts your soundtracks (tools/encrypt_mus
 tools/engine/          the slim engine build profile (the built exe in bin/ is gitignored)
 tools/publish_update.py  publishes an update (export, self-test, commit, tag, push, GitHub Release)
 tools/make_ui.py       pixel UI skin, placeholder upgrade / ticket icons, the 3 new ore icons
+tools/make_upgrade_icons.py  only the newer Dwarven Shop icons (Better Rock Piles, Strongbox, Rebirth)
 ```
 
 Save file: `%APPDATA%\Godot\app_userdata\Rich From Rocks\save.cfg` (delete it, or press Reset, to start over).

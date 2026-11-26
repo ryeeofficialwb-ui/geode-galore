@@ -63,6 +63,7 @@ var market_sort := ""               # "" = normal order, "low" = least profit fi
 var sort_btn: Button
 var stock_timer: Label              # Stock Prices: time until prices change
 var tab_m_ores: Button
+var tab_m_gems: Button
 var tab_m_rocks: Button
 var practice_btn: Button            # next to the Mine: play any activity, no lighter, no coins
 var practice_overlay: Control
@@ -89,8 +90,14 @@ var wall_book_btn: Button           # the Artifact Book, on the wall too (openin
 var rest_extra_box: VBoxContainer
 var book_overlay: Control           # the Artifact Book (Select Mine): every artifact there is
 var book_list: GridContainer
+var book_tiers: VBoxContainer       # the Tier List tab
+var book_info: Label
+var book_scroll: ScrollContainer
+var book_tabs := {}                 # tab id -> its button
+var book_tab := "artifacts"
 var hints_btn: Button
 var tips_btn: Button                # Settings > Tips (the pop-up tips as you play)
+var circles_btn: Button             # Settings > Coloured circles (tap circles each in their own colour)
 var _hints: Array[Control] = []     # helper texts that Settings > Hint text hides
 var bag_list: VBoxContainer
 var crush_btn: Button               # Crush All: every rock at once, supernova style
@@ -104,6 +111,7 @@ var shop_clock: Label               # Philippine time (the shelf and prices foll
 var shop_timer: Label
 var restock_btn: Button
 var reset_confirm: ConfirmationDialog
+var rebirth_confirm: ConfirmationDialog  # Dwarven Shop > Rebirth (asks first: it wipes the game)
 var leave_confirm: ConfirmationDialog   # Back on a run = cash out (asks first)
 var toast_label: Label
 var toast_tween: Tween
@@ -135,6 +143,9 @@ func _ready() -> void:
 	wall_view.life_lost.connect(_on_life_lost)
 	wall_view.flooded.connect(_on_flooded)
 	wall_view.full_light.connect(_on_full_light)
+	wall_view.countdown_tick.connect(func():
+		if not wall_view.peaceful():
+			_shake = maxf(_shake, Config.COUNTDOWN_SHAKE))  # 3, 2, 1: the screen shakes a bit
 	wall_view.stage_up.connect(_on_stage_up)
 	wall_view.dynamite_blown.connect(func(at: Vector2):
 		_shake = Config.SCREEN_SHAKE_ON_BREAK * 2.0
@@ -218,8 +229,14 @@ func _process(delta: float) -> void:
 		_shake = maxf(_shake, wall_view.danger() * Config.DANGER_SCREEN_SHAKE)
 		if wall_view.danger() > 0.35:
 			tutorial.tip("danger", true)
+		if wall_view.in_beat_practice():
+			tutorial.tip("beat", true)
 	if on_wall and wall_view.peaceful():
 		_shake = 0.0  # Art of Peace: the screen never shakes
+	# practising the beat: the whole game goes dark, the wall's buttons too
+	var dark := 1.0 - Config.BEAT_PRACTICE_DIM * wall_view.zoom_amount()
+	for c in [back_btn, wall_book_btn, dynamite_btn, ram_btn, ham_btn, items_hud]:
+		(c as CanvasItem).modulate = Color(dark, dark, dark)
 	if on_wall and wall_view.active and wall_view.practice == "" and not wall_view.free_practice:
 		Game.note_time(delta / maxf(Engine.time_scale, 0.01))  # real seconds, even with Rapid Fire
 	# Rapid Fire: everything in the mine runs faster (only while you're mining, not on breaks or in menus)
@@ -406,9 +423,14 @@ func _build() -> void:
 	add_child(tutorial)
 
 	reset_confirm = ConfirmationDialog.new()
-	reset_confirm.dialog_text = "Start over? Coins, rocks and ores are wiped."
+	reset_confirm.dialog_text = "Start over? Coins, rocks, ores, upgrades and Rebirths are wiped."
 	reset_confirm.confirmed.connect(_reset)
 	add_child(reset_confirm)
+	rebirth_confirm = ConfirmationDialog.new()
+	rebirth_confirm.ok_button_text = "REBIRTH"
+	rebirth_confirm.cancel_button_text = "Not yet"
+	rebirth_confirm.confirmed.connect(_rebirth)
+	add_child(rebirth_confirm)
 	leave_confirm = ConfirmationDialog.new()
 	leave_confirm.ok_button_text = "Cash out & leave"
 	leave_confirm.cancel_button_text = "Keep mining"
@@ -681,6 +703,85 @@ func _rebuild_upgrades() -> void:
 		b.disabled = lv >= top or Game.coins < cost
 		row.add_child(b)
 		upgrade_list.add_child(card)
+	upgrade_list.add_child(_rebirth_card())
+
+
+## Rebirth: the whole game over for one more artifact slot on every run (REBIRTH_MAX times). Shows what the next
+## one costs - coins and ores / gems, each green when you have enough, red when you don't.
+func _rebirth_card() -> Control:
+	var card := PanelContainer.new()
+	card.add_theme_stylebox_override("panel", slot_style)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	card.add_child(row)
+	row.add_child(_icon(Game.ui_texture("upgrades/rebirth.png"), 56))
+	var info := VBoxContainer.new()
+	info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	info.add_theme_constant_override("separation", 2)
+	row.add_child(info)
+	var head := HBoxContainer.new()
+	info.add_child(head)
+	head.add_child(_label("Rebirth", 20, Config.ACCENT))
+	head.add_child(_label("   %d / %d done   -   %d artifact slots" % [Game.rebirths, Config.REBIRTH_MAX, Game.base_slots()], 15, Config.MUTED_TEXT))
+	var d := _label("Start the WHOLE game over - coins, rocks, ores, upgrades, caves and tickets are wiped - for +%d artifact slot on every run, forever." % Config.REBIRTH_SLOTS, 15, Config.TEXT_COLOR)
+	d.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	d.custom_minimum_size.x = 520
+	info.add_child(d)
+	var why := Game.rebirth_blocker()
+	if Game.rebirths < Config.REBIRTH_MAX:
+		var c := Game.rebirth_cost()
+		var need := HFlowContainer.new()
+		need.add_theme_constant_override("h_separation", 12)
+		need.custom_minimum_size.x = 520
+		info.add_child(need)
+		need.add_child(_label("%s / %s coins" % [_big(Game.coins), _big(c.coins)], 15,
+				Config.MARKET_GOOD_COLOR if Game.coins >= int(c.coins) else Config.MARKET_BAD_COLOR))
+		for id in c.ores:
+			var have := int(Game.ores.get(id, 0))
+			var cell := HBoxContainer.new()
+			cell.add_theme_constant_override("separation", 2)
+			var ic := _icon(Game.ore_texture(id), 24)
+			ic.tooltip_text = Game.ore_name(id)
+			ic.mouse_filter = Control.MOUSE_FILTER_PASS
+			cell.add_child(ic)
+			cell.add_child(_label("%d/%d" % [have, c.ores[id]], 15, Config.MARKET_GOOD_COLOR if have >= int(c.ores[id]) else Config.MARKET_BAD_COLOR))
+			need.add_child(cell)
+	var b := _button("MAXED" if Game.rebirths >= Config.REBIRTH_MAX else "Rebirth", _ask_rebirth)
+	b.custom_minimum_size = Vector2(180, 48)
+	b.disabled = why != ""
+	b.tooltip_text = why
+	b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(b)
+	return card
+
+
+func _ask_rebirth() -> void:
+	if Game.rebirth_blocker() != "":
+		Sfx.play("error")
+		return
+	rebirth_confirm.dialog_text = "REBIRTH #%d?\n\nEverything is wiped: coins, rocks, ores, upgrades, caves and tickets.\nYou keep: %d artifact slots on every run, forever." % [Game.rebirths + 1, Game.base_slots() + Config.REBIRTH_SLOTS]
+	rebirth_confirm.popup_centered()
+
+
+func _rebirth() -> void:
+	if not Game.rebirth():
+		Sfx.play("error")
+		return
+	_close_overlays()
+	rock_view.set_rock("")
+	_auto_place("")
+	Sfx.play("supernova")
+	show_toast("REBORN!  %d artifact slots on every run" % Game.base_slots())
+
+
+## 2500000 -> "2,500,000"
+func _big(n: int) -> String:
+	var t := str(absi(n))
+	var out := ""
+	while t.length() > 3:
+		out = "," + t.right(3) + out
+		t = t.left(t.length() - 3)
+	return ("-" if n < 0 else "") + t + out
 
 
 ## "+2.5% coins in the mine", "0.2% chance a sale pays +15%"
@@ -703,15 +804,32 @@ func _upgrade_text(id: String, v: float) -> String:
 	return "+%s%% %s" % [n, Config.UPGRADES[id].get("text", "")]
 
 
-## "(140%)" next to a price (nothing at the normal price): green when it's good for you, red when bad.
+## "+40%" / "-15%" next to a price (nothing at the normal price). The sign says whether it's good for you,
+## not which way the price went - colours alone were too easy to miss: + = profit, - = a loss.
 ## Ores sell: higher is good. Rocks you buy: cheaper is good.
 func _market_tag(id: String, fs: int) -> Label:
 	var m := Game.market_mult(id)
 	var pct := roundi(m * 100.0)
-	var l := _label("" if pct == 100 else "(%d%%)" % pct, fs, _pct_color(pct - 100, Config.ROCKS.has(id)))
-	l.tooltip_text = "Market price: %d%% of normal" % pct
+	var rock := Config.ROCKS.has(id)
+	var l := _label(_deal_text(pct - 100, rock), fs, _pct_color(pct - 100, rock))
+	l.tooltip_text = "Market price: %d%% of normal  (+ = good for you, - = bad for you)" % pct
 	l.mouse_filter = Control.MOUSE_FILTER_PASS
 	return l
+
+
+## How good a price change is for YOU, with a sign: "+12%" good, "-12%" bad, "" none.
+## rock = true: you buy it, so a price going DOWN is the "+".
+func _deal_text(delta: int, rock := false, zero := "") -> String:
+	var gain := -delta if rock else delta
+	if gain == 0:
+		return zero
+	return ("+%d%%" % gain) if gain > 0 else ("-%d%%" % -gain)
+
+
+## " (+ good deal)" / " (- bad deal)" after a line of text.
+func _deal_word(delta: int, rock := false) -> String:
+	var gain := -delta if rock else delta
+	return "" if gain == 0 else ("  (+ good deal)" if gain > 0 else "  (- bad deal)")
 
 
 ## Shop > Stock Prices: today's price of everything (vs normal, how it moved at the last restock and the
@@ -725,12 +843,13 @@ func _build_stock_page(v: VBoxContainer) -> void:
 	tabs.add_theme_constant_override("separation", 8)
 	v.add_child(tabs)
 	var grp := ButtonGroup.new()
-	tab_m_ores = _button("Ores & Gems", _show_market_tab.bind("ores"))
+	tab_m_ores = _button("Ores", _show_market_tab.bind("ores"))
+	tab_m_gems = _button("Gems", _show_market_tab.bind("gems"))
 	tab_m_rocks = _button("Rocks", _show_market_tab.bind("rocks"))
-	for b in [tab_m_ores, tab_m_rocks]:
+	for b in [tab_m_ores, tab_m_gems, tab_m_rocks]:
 		b.toggle_mode = true
 		b.button_group = grp
-		b.custom_minimum_size = Vector2(150, 44)
+		b.custom_minimum_size = Vector2(120, 44)
 		b.add_theme_color_override("font_pressed_color", Config.ACCENT)
 		b.add_theme_color_override("font_hover_pressed_color", Config.ACCENT)
 		tabs.add_child(b)
@@ -748,7 +867,7 @@ func _build_stock_page(v: VBoxContainer) -> void:
 	sort_btn.tooltip_text = "Click to change the order"
 	tabs.add_child(sort_btn)
 	_update_sort_btn()
-	var hint := _hint(_label("Prices change at every restock. Profit: ores = coins above (or below) their normal price; rocks = what's inside on average minus what they cost.", 15, Config.MUTED_TEXT)) as Label
+	var hint := _hint(_label("+ means good for you (profit), - means bad for you (a loss). Deal = today's price vs normal, Moved = since the last restock. Profit: ores = coins above (or below) their normal price; rocks = what's inside on average minus what they cost.", 15, Config.MUTED_TEXT)) as Label
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	hint.custom_minimum_size.x = 800
 	v.add_child(hint)
@@ -767,7 +886,7 @@ func _build_stock_page(v: VBoxContainer) -> void:
 	head_pad.custom_minimum_size.x = 8 + 32
 	head_pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	head.add_child(head_pad)
-	for col in [["Price", "Price right now"], ["Now", "Price vs normal"], ["Moved", "Change at the last restock"], ["Profit", "Ores: coins above / below the normal price.  Rocks: worth inside (average) minus price."]]:
+	for col in [["Price", "Price right now"], ["Deal", "Today's price vs normal:  + = good for you (sell high / buy cheap),  - = bad for you"], ["Moved", "How the deal changed at the last restock:  + = better for you,  - = worse"], ["Profit", "Ores: coins above / below the normal price.  Rocks: worth inside (average) minus price.  + = profit,  - = a loss"]]:
 		var hl := _label(col[0], 14, Config.MUTED_TEXT)
 		hl.custom_minimum_size.x = STOCK_COLS
 		hl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
@@ -806,6 +925,7 @@ func _show_market_tab(tab: String, sound := true) -> void:
 		market_pick = ""
 	market_tab = tab
 	tab_m_ores.set_pressed_no_signal(tab == "ores")
+	tab_m_gems.set_pressed_no_signal(tab == "gems")
 	tab_m_rocks.set_pressed_no_signal(tab == "rocks")
 	_rebuild_market()
 
@@ -827,8 +947,10 @@ func _rebuild_market() -> void:
 		return
 	for c in market_list.get_children():
 		c.queue_free()
-	var ore := market_tab == "ores"
-	var ids: Array = Config.ORES.keys() if ore else _rocks_by_price()
+	var ore := market_tab != "rocks"  # the Ores or the Gems tab
+	var ids: Array = _rocks_by_price()
+	if ore:  # the Ores tab: every ore; the Gems tab: every gem (cheapest first)
+		ids = _ores_then_gems().filter(func(id): return Game.is_gem(id) == (market_tab == "gems"))
 	if market_sort != "":
 		var profit := {}
 		var order := {}
@@ -855,6 +977,12 @@ func _profit(id: String, ore: bool) -> int:
 	return roundi(_rock_worth(id)) - Game.rock_price(id)
 
 
+## Every ore id, ores first and then gems (Config.ORES table order inside each group).
+func _ores_then_gems() -> Array:
+	var ores: Array = Config.ORES.keys().filter(func(id): return not Game.is_gem(id))
+	return ores + Config.ORES.keys().filter(func(id): return Game.is_gem(id))
+
+
 func _rocks_by_price() -> Array:
 	var ids: Array = Config.ROCKS.keys()
 	ids.sort_custom(func(a, b): return int(Config.ROCKS[a].price) < int(Config.ROCKS[b].price))
@@ -863,7 +991,7 @@ func _rocks_by_price() -> Array:
 
 ## One line of the list: icon, name, price now, % of normal, last move, profit. Click it for its page.
 func _market_row(id: String) -> Control:
-	var ore := market_tab == "ores"
+	var ore := market_tab != "rocks"  # the Ores or the Gems tab
 	var b := Button.new()
 	b.custom_minimum_size = Vector2(0, 44)
 	b.focus_mode = Control.FOCUS_NONE
@@ -897,12 +1025,12 @@ func _market_row(id: String) -> Control:
 	pl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	h.add_child(pl)
 	var pct := roundi(Game.market_mult(id) * 100.0)
-	var ml := _label("%d%%" % pct, 16, _pct_color(pct - 100, not ore))
+	var ml := _label(_deal_text(pct - 100, not ore, "0%"), 16, _pct_color(pct - 100, not ore))
 	ml.custom_minimum_size.x = STOCK_COLS
 	ml.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	h.add_child(ml)
 	var tr := Game.market_trend(id)
-	var tl := _label(("+%d%%" % tr) if tr > 0 else ("%d%%" % tr) if tr < 0 else "-", 16, _pct_color(tr, not ore))
+	var tl := _label(_deal_text(tr, not ore, "0%"), 16, _pct_color(tr, not ore))
 	tl.custom_minimum_size.x = STOCK_COLS
 	tl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	h.add_child(tl)
@@ -927,7 +1055,7 @@ func _pct_color(delta: int, rock := false) -> Color:
 func _show_market_detail(id: String) -> void:
 	for c in market_detail.get_children():
 		c.queue_free()
-	var ore := market_tab == "ores"
+	var ore := market_tab != "rocks"  # the Ores or the Gems tab
 	var head := HBoxContainer.new()
 	head.add_theme_constant_override("separation", 10)
 	market_detail.add_child(head)
@@ -942,10 +1070,10 @@ func _show_market_detail(id: String) -> void:
 		var o: Dictionary = Config.ORES[id]
 		hv.add_child(_label(("Gem" if Game.is_gem(id) else "Ore") + ("  -  rare" if o.get("rare", false) else ""), 16, Config.MUTED_TEXT))
 		_detail_line("Sells for %d coins" % Game.ore_price(id), Config.ACCENT)
-		_detail_line("Market: %d%% of the normal %d  (%s at the last restock)" % [pct, int(o.sell_price),
-				("+%d%%" % tr) if tr > 0 else ("%d%%" % tr) if tr < 0 else "no change"], _pct_color(pct - 100))
+		_detail_line("Market: %d%% of the normal %d%s  (%s for you at the last restock)" % [pct, int(o.sell_price), _deal_word(pct - 100),
+				_deal_text(tr, false, "no change")], _pct_color(pct - 100))
 		var pf := _profit(id, true)
-		_detail_line("Profit: %s coins each vs the normal price" % (("+%d" % pf) if pf > 0 else str(pf)), _pct_color(pf))
+		_detail_line("Profit: %s coins each vs the normal price%s" % [("+%d" % pf) if pf > 0 else str(pf), _deal_word(pf)], _pct_color(pf))
 		_detail_line("In your backpack: %d" % int(Game.ores.get(id, 0)), Config.TEXT_COLOR)
 		var best := _best_rocks_for(id)
 		_detail_line("Only found in: " + ", ".join(best), Config.TEXT_COLOR)
@@ -958,8 +1086,8 @@ func _show_market_detail(id: String) -> void:
 		var r: Dictionary = Config.ROCKS[id]
 		hv.add_child(_label("Rock", 16, Config.MUTED_TEXT))
 		_detail_line("Shop price: %d coins" % Game.rock_price(id), Config.ACCENT)
-		_detail_line("Market: %d%% of the normal %d  (%s at the last restock)" % [pct, int(r.price),
-				("+%d%%" % tr) if tr > 0 else ("%d%%" % tr) if tr < 0 else "no change"], _pct_color(pct - 100, true))
+		_detail_line("Market: %d%% of the normal %d%s  (%s for you at the last restock)" % [pct, int(r.price), _deal_word(pct - 100, true),
+				_deal_text(tr, true, "no change")], _pct_color(pct - 100, true))
 		_detail_line("Hits to break: %d - %d" % [int(r.get("hits_min", Config.HITS_MIN)), int(r.get("hits_max", Config.HITS_MAX))], Config.TEXT_COLOR)
 		_detail_line("Drop rolls: %d" % int(r.get("rolls", 1)), Config.TEXT_COLOR)
 		var parts := []
@@ -969,7 +1097,7 @@ func _show_market_detail(id: String) -> void:
 		_detail_line("In stock at a restock: %d%% of the time (up to %d)" % [roundi(float(r.get("stock_chance", 1.0)) * 100.0), int(r.get("stock_max", 1))], Config.TEXT_COLOR)
 		_detail_line("Worth inside, on average: ~%d coins at today's prices" % roundi(_rock_worth(id)), Config.ACCENT)
 		var pf := _profit(id, false)
-		_detail_line("Profit: %s coins per rock, on average" % (("+%d" % pf) if pf > 0 else str(pf)), _pct_color(pf))
+		_detail_line("Profit: %s coins per rock, on average%s" % [("+%d" % pf) if pf > 0 else str(pf), _deal_word(pf)], _pct_color(pf))
 		_detail_line("You own: %d" % int(Game.rocks.get(id, 0)), Config.TEXT_COLOR)
 
 
@@ -1033,6 +1161,12 @@ func _build_settings() -> void:
 		Sfx.play("click"))
 	tips_btn.custom_minimum_size.y = 44
 	v.add_child(tips_btn)
+	circles_btn = _button("", func():
+		Game.set_color_circles(not Game.color_circles)
+		Sfx.play("click"))
+	circles_btn.custom_minimum_size.y = 44
+	circles_btn.tooltip_text = "Tap circles each get their own colour (in the order they close), so they're easier to tell apart"
+	v.add_child(circles_btn)
 	sound_btn = _button("", _toggle_sound)
 	sound_btn.custom_minimum_size.y = 44
 	v.add_child(sound_btn)
@@ -1184,9 +1318,15 @@ func _refresh() -> void:
 	var total := 0
 	if Game.ores.is_empty():
 		ore_list.add_child(_label("Break rocks to find ores.", 15, Config.MUTED_TEXT))
-	for id in Config.ORES:  # keep table order
+	var section := ""
+	for id in _ores_then_gems():  # ores first, then gems (table order inside each)
 		if not Game.ores.has(id):
 			continue
+		var group := "Gems" if Game.is_gem(id) else "Ores"
+		if group != section:  # a heading over each group
+			section = group
+			var hl := _title(group, 22, Config.ACCENT)
+			ore_list.add_child(hl)
 		var count: int = Game.ores[id]
 		var price := Game.ore_price(id)
 		total += count * price
@@ -1282,7 +1422,17 @@ func _cubby(i: int, s: Dictionary) -> Button:
 	st_l.offset_right = -8
 	st_l.offset_top = 4
 	b.add_child(st_l)
-	for c in [v, ic, name_l, tag, pl, st_l]:
+	# profit or not: a big + or - in the top-left corner (colour too, but the sign is what you read)
+	var pf := _profit(s.id, false)
+	var sign_l := _label("+" if pf > 0 else "-" if pf < 0 else "=", 26, _pct_color(pf))
+	sign_l.add_theme_font_override("font", title_font)
+	sign_l.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	sign_l.offset_left = 9
+	sign_l.offset_top = -2
+	b.add_child(sign_l)
+	b.tooltip_text += "\n%s: %s coins per rock on average at today's prices" % [
+			"PROFIT (+)" if pf > 0 else "LOSS (-)" if pf < 0 else "Breaks even", ("+%d" % pf) if pf > 0 else str(pf)]
+	for c in [v, ic, name_l, tag, pl, st_l, sign_l]:
 		(c as Control).mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return b
 
@@ -1392,7 +1542,7 @@ func _show_crush_summary(res: Dictionary) -> void:
 	sl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(sl)
 	var ids: Array = []
-	for id in Config.ORES:  # table order, like the Backpack
+	for id in _ores_then_gems():  # ores, then gems - like the Backpack
 		if got.has(id):
 			ids.append(id)
 	var cells: Array[Control] = []
@@ -1887,31 +2037,118 @@ func _build_select_mine() -> void:
 
 
 ## The Artifact Book: every artifact you can be offered on a run, what it does, and (on a run) which you hold.
+## Three tabs: Artifacts (they last the run), Consumables (used up once they've done their thing) and the
+## Tier List (Config.ITEM_TIERS - the current meta).
 func _build_book() -> void:
 	var o := _make_overlay("Artifact Book", _close_overlays)
 	book_overlay = o[0]
 	var v: VBoxContainer = o[1]
-	var info := _label("Every time you clear a stage on a run, you're offered %d of these: take one. You hold %d at once; they last for the run. With your slots full, taking one swaps one of yours out - that one won't show up again for %d stages. Used-up ones come back after %d stages." % [
-			Config.ITEM_CHOICES, Config.ITEM_SLOTS, Config.SWAP_COOLDOWN, Config.CONSUMABLE_COOLDOWN], 16, Config.MUTED_TEXT)
-	info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	info.custom_minimum_size.x = 860
-	v.add_child(info)
-	var sc := ScrollContainer.new()
-	sc.custom_minimum_size = Vector2(880, 470)
-	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	v.add_child(sc)
+	var tabs := HBoxContainer.new()
+	tabs.add_theme_constant_override("separation", 8)
+	v.add_child(tabs)
+	var grp := ButtonGroup.new()
+	for t in [["artifacts", "Artifacts"], ["consumables", "Consumables"], ["tiers", "Tier List"]]:
+		var b := _button(t[1], _show_book_tab.bind(t[0]))
+		b.toggle_mode = true
+		b.button_group = grp
+		b.custom_minimum_size = Vector2(196, 46)
+		b.add_theme_color_override("font_pressed_color", Config.ACCENT)  # the open tab reads gold
+		b.add_theme_color_override("font_hover_pressed_color", Config.ACCENT)
+		tabs.add_child(b)
+		book_tabs[t[0]] = b
+	book_info = _label("", 16, Config.MUTED_TEXT)
+	book_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	book_info.custom_minimum_size.x = 860
+	v.add_child(book_info)
+	book_scroll = ScrollContainer.new()
+	book_scroll.custom_minimum_size = Vector2(880, 470)
+	book_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	v.add_child(book_scroll)
+	var pages := VBoxContainer.new()
+	pages.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	book_scroll.add_child(pages)
 	book_list = GridContainer.new()
 	book_list.columns = 2
 	book_list.add_theme_constant_override("h_separation", 8)
 	book_list.add_theme_constant_override("v_separation", 8)
-	sc.add_child(book_list)
+	pages.add_child(book_list)
+	book_tiers = VBoxContainer.new()
+	book_tiers.add_theme_constant_override("separation", 6)
+	book_tiers.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	pages.add_child(book_tiers)
 
 
 func _open_book() -> void:
 	_close_overlays()
-	for c in book_list.get_children():
+	_show_book_tab(book_tab, false)
+	book_overlay.visible = true
+
+
+## Consumables: used up once they've done their thing (Config "once"), and the Pet Rock (it wanders off).
+func _book_consumable(id: String) -> bool:
+	return Game.is_consumable(id) or id == "pet_rock"
+
+
+## An artifact's tier in Config.ITEM_TIERS ("?" = unranked).
+func _tier_of(id: String) -> String:
+	for t in Config.ITEM_TIERS:
+		if id in Config.ITEM_TIERS[t]:
+			return t
+	return "?"
+
+
+## Its place in the whole tier list (best = 0; unranked last).
+func _tier_rank(id: String) -> int:
+	var n := 0
+	for t in Config.ITEM_TIERS:
+		var i: int = Config.ITEM_TIERS[t].find(id)
+		if i >= 0:
+			return n + i
+		n += Config.ITEM_TIERS[t].size()
+	return n + 1000
+
+
+## A tier letter on a coloured block.
+func _tier_badge(t: String, s: int, fs: int) -> PanelContainer:
+	var p := PanelContainer.new()
+	var st := StyleBoxFlat.new()
+	st.bg_color = Config.TIER_COLORS.get(t, Config.TIER_COLORS["?"])
+	st.border_color = Config.TEXT_OUTLINE_COLOR
+	st.set_border_width_all(3)
+	p.add_theme_stylebox_override("panel", st)
+	p.custom_minimum_size = Vector2(s, s)
+	p.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	p.tooltip_text = "Tier %s in the current meta" % t if t != "?" else "Not ranked yet"
+	var l := _title(t, fs, Color.WHITE)  # white letter, dark outline (the theme's)
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	p.add_child(l)
+	return p
+
+
+func _show_book_tab(tab: String, sound := true) -> void:
+	if sound:
+		Sfx.play("click")
+	book_tab = tab
+	book_tabs[tab].set_pressed_no_signal(true)
+	for c in book_list.get_children() + book_tiers.get_children():
 		c.queue_free()
-	for id in Config.ITEMS:
+	book_list.visible = tab != "tiers"
+	book_tiers.visible = tab == "tiers"
+	book_scroll.scroll_vertical = 0
+	match tab:
+		"artifacts":
+			book_info.text = "Every time you clear a stage on a run, you're offered %d artifacts: take one. You hold %d at once; they last for the run. With your slots full, taking one swaps one of yours out - that one won't show up again for %d stages. Best first (see the Tier List)." % [
+					Config.ITEM_CHOICES, Game.base_slots(), Config.SWAP_COOLDOWN]
+		"consumables":
+			book_info.text = "Used up once they've done their thing. A used-up one isn't offered again for %d stages (or pay at a rest to bring it back sooner). Best first." % Config.CONSUMABLE_COOLDOWN
+		"tiers":
+			book_info.text = "The current meta: S is the best, F the worst - it changes as the game gets rebalanced. Hover an icon for what it does."
+			_fill_tier_list()
+			return
+	var ids: Array = Config.ITEMS.keys().filter(func(id): return _book_consumable(id) == (tab == "consumables"))
+	ids.sort_custom(func(a, b): return _tier_rank(a) < _tier_rank(b))
+	for id in ids:
 		var card := PanelContainer.new()
 		card.add_theme_stylebox_override("panel", slot_style)
 		card.custom_minimum_size = Vector2(430, 0)
@@ -1923,19 +2160,54 @@ func _open_book() -> void:
 		row.add_child(ic)
 		var col := VBoxContainer.new()
 		col.add_theme_constant_override("separation", 0)
+		col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		row.add_child(col)
 		var tag := ""
 		if Game.trip_active and Game.run_items.has(id):
 			tag = "   (you have it)"
-		elif Game.is_consumable(id):
-			tag = "   (used up once it's done)"
 		col.add_child(_label(Game.item_name(id) + tag, 20, Config.ACCENT))
 		var d := _label(Config.ITEMS[id].get("book", Config.ITEMS[id].text), 16, Config.TEXT_COLOR)
 		d.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		d.custom_minimum_size.x = 350
+		d.custom_minimum_size.x = 310
 		col.add_child(d)
+		row.add_child(_tier_badge(_tier_of(id), 34, 22))
 		book_list.add_child(card)
-	book_overlay.visible = true
+
+
+## The Tier List tab: a row per tier, with its artifacts' icons and names in the meta's order.
+func _fill_tier_list() -> void:
+	var rows := {}
+	for t in Config.ITEM_TIERS:
+		rows[t] = Config.ITEM_TIERS[t].filter(func(id): return Config.ITEMS.has(id))
+	var unranked: Array = Config.ITEMS.keys().filter(func(id): return _tier_of(id) == "?")
+	if not unranked.is_empty():
+		rows["?"] = unranked
+	for t in rows:
+		var card := PanelContainer.new()
+		card.add_theme_stylebox_override("panel", slot_style)
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 12)
+		card.add_child(row)
+		row.add_child(_tier_badge(t, 72, 40))
+		var flow := HFlowContainer.new()
+		flow.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		flow.add_theme_constant_override("h_separation", 4)
+		flow.add_theme_constant_override("v_separation", 6)
+		row.add_child(flow)
+		for id in rows[t]:
+			var cell := VBoxContainer.new()
+			cell.custom_minimum_size.x = 92
+			cell.add_theme_constant_override("separation", 0)
+			var ic := _item_icon(id, 48)
+			ic.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+			cell.add_child(ic)
+			var nm := _label(Game.item_name(id), 12, Config.TEXT_COLOR)
+			nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			nm.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			nm.custom_minimum_size.x = 92
+			cell.add_child(nm)
+			flow.add_child(cell)
+		book_tiers.add_child(card)
 
 
 func _open_select_mine() -> void:
@@ -2029,17 +2301,19 @@ func _layout_screens() -> void:
 	if not (_menu_tween and _menu_tween.is_running()):
 		menu_bar.visible = not on_wall
 		menu_bar.position.y = 0.0 if not on_wall else -bar_h - 8.0
+	# the wall's buttons go down the right edge from the top-right corner (the lives are top-left)
+	var right := s.x - Config.SAFE_BORDER
 	back_btn.size = back_btn.get_combined_minimum_size()
-	back_btn.position = Vector2(s.x - back_btn.size.x - Config.SAFE_BORDER, (s.y - back_btn.size.y) * 0.5)
-	dynamite_btn.size = dynamite_btn.get_combined_minimum_size()
-	dynamite_btn.position = Vector2(s.x - dynamite_btn.size.x - Config.SAFE_BORDER, back_btn.position.y - dynamite_btn.size.y - 12)
+	back_btn.position = Vector2(right - back_btn.size.x, Config.SAFE_BORDER)
 	ram_btn.size = ram_btn.get_combined_minimum_size()
 	ram_btn.position = Vector2(back_btn.position.x - ram_btn.size.x - 12, back_btn.position.y + (back_btn.size.y - ram_btn.size.y) * 0.5)
-	ham_btn.size = ham_btn.get_combined_minimum_size()
 	wall_book_btn.size = wall_book_btn.get_combined_minimum_size()
-	wall_book_btn.position = Vector2(s.x - wall_book_btn.size.x - Config.SAFE_BORDER, back_btn.position.y + back_btn.size.y + 12)
-	ham_btn.position = Vector2(s.x - ham_btn.size.x - Config.SAFE_BORDER, wall_book_btn.position.y + wall_book_btn.size.y + 12)
-	items_hud.position = Vector2(Config.SAFE_BORDER + 6, 150)
+	wall_book_btn.position = Vector2(right - wall_book_btn.size.x, back_btn.position.y + back_btn.size.y + 12)
+	dynamite_btn.size = dynamite_btn.get_combined_minimum_size()
+	dynamite_btn.position = Vector2(right - dynamite_btn.size.x, wall_book_btn.position.y + wall_book_btn.size.y + 12)
+	ham_btn.size = ham_btn.get_combined_minimum_size()
+	ham_btn.position = Vector2(right - ham_btn.size.x, dynamite_btn.position.y + (dynamite_btn.size.y + 12 if dynamite_btn.visible else 0.0))
+	items_hud.position = Vector2(Config.SAFE_BORDER + 6, 200)  # under the lives and the combo
 	rest_panel.size = rest_panel.get_combined_minimum_size()
 	rest_panel.position = ((s - rest_panel.size) * 0.5 + Vector2(30, 10)).round()
 
@@ -2530,6 +2804,8 @@ func _apply_hints() -> void:
 		hints_btn.text = "Hint text: On  (click to hide)" if Game.show_hints else "Hint text: Off  (click to show)"
 	if tips_btn:
 		tips_btn.text = "Tips: On  (click to turn off)" if Game.show_tips else "Tips: Off  (click to turn on)"
+	if circles_btn:
+		circles_btn.text = "Coloured circles: On  (click to turn off)" if Game.color_circles else "Coloured circles: Off  (click to turn on)"
 
 
 func _update_sound_btn() -> void:
@@ -2934,6 +3210,7 @@ func _dev_shots(dir: String) -> void:
 	_open_shop("stocks")
 	await get_tree().create_timer(0.3).timeout
 	get_viewport().get_texture().get_image().save_png(dir + "/5c_market.png")
+	_show_market_tab("gems", false)  # Lapis is a gem: it's on the Gems tab
 	market_pick = "lapis"
 	_rebuild_market()
 	await get_tree().create_timer(0.3).timeout

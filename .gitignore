@@ -17,3 +17,7 @@ tools/engine/bin/
 
 # python caches (tools/)
 __pycache__/
+
+# previews the art tools write every time they run (look at them, don't keep them)
+art_source/**/*_preview.*
+art_source/ui/preview.png

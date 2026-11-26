@@ -1032,9 +1032,13 @@ def make_item_icons():
     out_dir.mkdir(parents=True, exist_ok=True)
     out = {}
     for name, grid in ITEM_ICONS.items():
+        path = out_dir / f"{name}.png"
+        if path.exists() and Image.open(path).width > 16:
+            out[name] = Image.open(path).convert("RGBA").resize((16, 16), Image.NEAREST)
+            continue  # a hand-drawn 32x32 icon (art_source/): never overwrite it with the 16x16 grid
         img = Image.new("RGBA", (16, 16))
         stamp(img, [r.ljust(16, ".")[:16] for r in grid], PAL)
-        img.save(out_dir / f"{name}.png")
+        img.save(path)
         out[name] = img
     return out
 

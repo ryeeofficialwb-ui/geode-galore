@@ -12,7 +12,10 @@ const PANEL_W := 680.0
 const PANEL_H := 130.0
 ## (Old saves that finished the old tutorial count the basics as seen: Game.BASIC_TIPS.)
 ## The "?" tour: tip ids in order. Wall steps with a "practice" let you try it with no timer.
-const TOUR := ["anvil", "backpack", "shop", "mine", "lighter", "act_slash", "wick"]
+const TOUR := ["anvil", "backpack", "shop", "mine", "lighter", "act_slash", "wick", "beat"]
+## Practising in the tour: once you've done the move (or this many good flicks) the step finishes by itself.
+const PRACTICE_FLICKS := 6
+const PRACTICE_NEXT_DELAY := 1.0  # seconds to see "Nice!" before the next step
 
 var main                        # scripts/main.gd (set before adding the tutorial)
 var steps: Array[Dictionary] = []
@@ -112,22 +115,24 @@ func _tips() -> Dictionary:
 		"backpack": {"title": "Your finds", "screen": "main", "target": func(): return m.backpack_btn.get_global_rect().grow(6),
 			"text": "Ores and gems go in your Backpack. Open it to sell them for coins."},
 		"shop": {"title": "Buy more rocks", "screen": "main", "target": func(): return m.shop_btn.get_global_rect().grow(6),
-			"text": "The Shop sells rocks (and upgrades). Prices move every restock: GREEN means a good deal for you. Shop > Stock Prices lists every price."},
+			"text": "The Shop sells rocks (and upgrades). Prices move every restock. A + means it's good for you (profit), a - means a loss. Shop > Stock Prices lists every price."},
 		"mine": {"title": "Short on coins?", "screen": "main", "target": func(): return m.mine_btn.get_global_rect().grow(6),
 			"text": "Earn coins down the Mine. Every trip needs a ticket for that cave: there's a free %s ticket every %d minutes in Shop > Caves." % [Game.cave_name(Game.first_cave()), int(Config.FREE_TICKET_SECONDS / 60.0)]},
 		"lighter": {"title": "It's dark down here", "screen": "wall", "practice": "flick", "nodim": true,
-			"text": "Flick SPACE (or tap the lighter) to light it. The light fades: that's your timer. The FLICK bar fills once per heartbeat: flick once a beat, while it's in the gold zone, to top it up - but not while it blazes full, or you flood it (-1/2 life)."},
+			"text": "Flick SPACE (or tap the lighter) to light it. The light fades: that's your timer. The FLICK bar on the left fills once per heartbeat: flick once a beat, while it's in the gold zone, to top it up - but not while it blazes full, or you flood it (-1/2 life)."},
 		"wick": {"title": "Your WICK", "screen": "wall", "target": wick_box,
 			"text": "This bar is your wick: the most light your lighter can have. It BURNS DOWN while a move waits for you, and flicking can't light the wall brighter than it. FINISH the move and it fills right back up. Too slow and it burns out: the lighter dies."},
 		"danger": {"title": "Finish the move!", "screen": "wall", "target": wick_box,
 			"text": "Your wick is nearly gone, so flicking won't help any more. Finish the move on the wall to refill it! Red edges and shaking = your light's about to die."},
 		"relight": {"title": "Lighter's out!", "screen": "wall", "nodim": true,
 			"text": "Strike SPACE while the marker is in the gold zone until the bar is empty - before the countdown runs out, or you lose a life."},
+		"beat": {"title": "Feel the beat", "screen": "wall", "nodim": true,
+			"text": "Your heart rate (the BPM over the FLICK bar) changes after every wall: faster on deeper stages and when you play well. You get 5 seconds to practise the new beat - these flicks don't count - then 3, 2, 1. Get 5 PERFECT moves in a row and your flame burns BLUE: Deep Focus."},
 		"lives": {"title": "Lives & stages", "screen": "wall", "target": stage_hud,
 			"text": "Break %d-%d walls to clear a stage (the top of the screen says how many): it pays more but gets harder. Lose a life and the stage restarts; lose them all and you drop a stage and your trip ends." % [Config.WALLS_PER_STAGE_MIN, Config.WALLS_PER_STAGE_MAX]},
 	}
 	var acts := {
-		"tap": "Tap each circle the moment its ring closes on it. Rings close at different speeds: tap whichever closes FIRST.",
+		"tap": "Tap each circle the moment its ring closes on it, in the order they appear. The long dashed line points to the NEXT one; dots show the ones after it.",
 		"zigzag": "Press the glowing dot and drag along the line, through every corner.",
 		"slash": "Press the glowing dot and swipe the whole line in one fast move.",
 		"drill": "Click the same spot until the counter hits 0.",
@@ -247,9 +252,19 @@ func _on_practiced(_kind: String) -> void:
 	if not visible or not touring:
 		return
 	_tries += 1
-	_status.text = "Nice! Again, or press Next" if _tries == 1 else "Done x%d - press Next when ready" % _tries
-	if _kind == "flick":
-		_status.text = "Keep flicking... (don't overfill it!)" if _tries < 12 else "You've got it - press Next"
+	# practice doesn't go on forever (no timer, no wick burning): do it once (a few good flicks) and the
+	# step completes itself
+	var done := _tries >= (PRACTICE_FLICKS if _kind == "flick" else 1)
+	if _kind == "flick" and not done:
+		_status.text = "Good flick! %d more..." % (PRACTICE_FLICKS - _tries)
+		return
+	if not done or _tries > (PRACTICE_FLICKS if _kind == "flick" else 1):
+		return
+	_status.text = "Nice! You've got it."
+	var at := index
+	get_tree().create_timer(PRACTICE_NEXT_DELAY).timeout.connect(func():
+		if visible and touring and index == at:
+			_go(index + 1))
 
 
 func practicing() -> bool:

@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://bqv7p7fyig1kn"
-path="res://.godot/imported/hands_source_1x.png-490960f9e596614aeccb6c4a5772b8b4.ctex"
+uid="uid://4vahe4tp8r0p"
+path="res://.godot/imported/rebirth.png-d00cc022dfaa63e78cf651750775455f.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://art_source/hands/hands_source_1x.png"
-dest_files=["res://.godot/imported/hands_source_1x.png-490960f9e596614aeccb6c4a5772b8b4.ctex"]
+source_file="res://assets/ui/upgrades/rebirth.png"
+dest_files=["res://.godot/imported/rebirth.png-d00cc022dfaa63e78cf651750775455f.ctex"]
 
 [params]
 
