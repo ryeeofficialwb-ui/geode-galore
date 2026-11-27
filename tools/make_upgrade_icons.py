@@ -1,4 +1,4 @@
-"""Draws the newer Dwarven Shop icons (16 x 16, Resurrect 64, same style as tools/make_ui.py) - and ONLY these,
+"""Draws the newer Upgrades icons (16 x 16, Resurrect 64, same style as tools/make_ui.py) - and ONLY these,
 so the rest of the UI art isn't redrawn.
 
     py -3.12 tools/make_upgrade_icons.py

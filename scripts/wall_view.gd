@@ -123,6 +123,8 @@ var _beat_hits := 0             # practice flicks on the beat / all practice fli
 var _beat_tries := 0
 var perfect_streak := 0         # PERFECT moves in a row; DEEP_FOCUS_PERFECTS of them = Deep Focus (blue flame)
 var _flame_frames_blue: Array[Texture2D] = []
+var _hype_t := 0.0              # > 0: a new stage just started - the flame flares blue and huge (seconds left)
+var _hype_pending := false      # the stage was cleared: flare up when the next stage's first wall starts
 var _meter := 0.0
 var _meter_dir := 1.0
 var _meter_speed := 1.0
@@ -346,6 +348,9 @@ func _start_wall() -> void:
 	if _run_on() and Game.half_walls():  # Dice of Dwarves 3-4: half the moves this stage
 		actions_total = maxi(1, ceili(actions_total / 2.0))
 	actions_left = actions_total
+	if _hype_pending:
+		_hype_pending = false
+		_hype_t = Config.STAGE_HYPE_TIME  # the new stage begins: the flame flares up
 	new_action()
 
 
@@ -433,6 +438,8 @@ func reset_run() -> void:
 	_gen += 1
 	resting = false
 	_beat_t = 0.0
+	_hype_t = 0.0
+	_hype_pending = false
 	perfect_streak = 0
 	_wall_moves = 0
 	_wall_perfects = 0
@@ -711,7 +718,10 @@ func _zigzag_points(area: Rect2) -> PackedVector2Array:
 	var pts := PackedVector2Array()
 	var cr := zigzag_corner_range()
 	for attempt in 60:
-		var corners := randi_range(cr.x, cr.y)
+		# later tries also take fewer turns, so a small wall gets a clean zigzag instead of a squashed one
+		var corners := randi_range(cr.x, maxi(cr.x, cr.y - attempt / 6))
+		if attempt >= 40:
+			corners = maxi(2, cr.x - (attempt - 40) / 6)
 		var shrink := lerpf(1.0, 0.55, attempt / 59.0)  # later tries get smaller so one always fits
 		var lo := maxf(Config.ZIGZAG_LENGTH_MIN, corners * Config.ZIGZAG_STEP_MIN)  # each turn needs room
 		var length := minf(randf_range(lo, maxf(lo, Config.ZIGZAG_LENGTH_MAX)) * shrink, area.size.length() * 0.8)
@@ -732,6 +742,8 @@ func _zigzag_points(area: Rect2) -> PackedVector2Array:
 			if i == 0 or i == corners + 1:
 				amp *= 0.4
 			corner_pts.append((spine + tangent.orthogonal() * flip * amp).clamp(area.position, area.end))  # never off the wall
+		if attempt < 59 and not _zigzag_clean(corner_pts):
+			continue  # it folds over itself or squashes against an edge: roll a new one
 		var checks := PackedVector2Array()
 		if randf() * 100.0 < Config.ZIGZAG_ROUND_CHANCE:
 			var r: Array = _round_corners(corner_pts)  # smooth, wavy turns
@@ -745,6 +757,34 @@ func _zigzag_points(area: Rect2) -> PackedVector2Array:
 		if _all_inside(pts, area):
 			break
 	return pts
+
+
+## True if a zigzag's legs never stack on top of each other: legs that aren't next to each other stay
+## ZIGZAG_MIN_GAP apart (an arch bent too hard, or turns squashed against the wall's edge, would cross
+## or pile up), and each turn is open enough that its two legs don't lie on top of each other.
+func _zigzag_clean(c: PackedVector2Array) -> bool:
+	var gap := Config.ZIGZAG_MIN_GAP
+	var min_dot := cos(deg_to_rad(Config.ZIGZAG_MIN_ANGLE))
+	for i in c.size() - 1:
+		if c[i].distance_to(c[i + 1]) < gap:
+			return false
+		if i >= 1:  # the turn at c[i]: angle between the leg back and the leg forward
+			if (c[i - 1] - c[i]).normalized().dot((c[i + 1] - c[i]).normalized()) > min_dot:
+				return false
+		for j in range(i + 2, c.size() - 1):
+			if _seg_dist(c[i], c[i + 1], c[j], c[j + 1]) < gap:
+				return false
+	return true
+
+
+## Shortest distance between segments a-b and c-d (0 if they cross).
+func _seg_dist(a: Vector2, b: Vector2, c: Vector2, d: Vector2) -> float:
+	if Geometry2D.segment_intersects_segment(a, b, c, d) != null:
+		return 0.0
+	return minf(minf(Geometry2D.get_closest_point_to_segment(a, c, d).distance_to(a),
+			Geometry2D.get_closest_point_to_segment(b, c, d).distance_to(b)),
+			minf(Geometry2D.get_closest_point_to_segment(c, a, b).distance_to(c),
+			Geometry2D.get_closest_point_to_segment(d, a, b).distance_to(d)))
 
 
 ## A zigzag with rounded turns: straight bits joined by smooth curves. Returns [path, checkpoints]
@@ -1386,11 +1426,11 @@ func _ease() -> float:
 	e *= pow(Config.DRUNK_HARDER, Game.item_count("drunk"))
 	e *= pow(Config.FAMILIAR_HARDER, Game.item_count("familiar_circle"))
 	e /= pow(Config.GAMBIT_HARDER, Game.item_count("deaths_gambit"))
-	e /= Game.hot_harder()  # Hot Hands
+	e /= Game.hot_harder()  # Sapphire's Clover
 	return clampf(e, 0.35, 3.0)
 
 
-## How long the wick lasts (x WICK_TIME): Beginner's Luck and Drunk longer, Death's Gambit and Hot Hands shorter.
+## How long the wick lasts (x WICK_TIME): Beginner's Luck and Drunk longer, Death's Gambit and Sapphire's Clover shorter.
 func _wick_mult() -> float:
 	if not _run_on():
 		return 1.0
@@ -2064,7 +2104,7 @@ func _ambient() -> float:
 ## The glow around the lighter itself (and the flash of sparks when you strike it).
 func _halo_radius() -> float:
 	var r := Config.LIGHTER_GLOW_RADIUS * lerpf(Config.GLOW_MIN, 1.0, fuel()) * (1.0 + Config.LIGHT_FLICKER * sin(_t * 29.0))
-	return r * _glow + 150.0 * _spark
+	return r * _glow * (1.0 + 0.6 * _hype().x) + 150.0 * _spark  # the new-stage flare lights up more of the wall
 
 
 func _crumble() -> void:
@@ -2085,6 +2125,7 @@ func _crumble() -> void:
 	var cleared := false
 	if practice == "" and Game.wall_cleared():
 		cleared = true
+		_hype_pending = true
 		stage_up.emit(Game.stage, mid)
 	await get_tree().create_timer(Config.WALL_RESPAWN_DELAY).timeout
 	if not _falling:
@@ -2191,6 +2232,7 @@ func _process(delta: float) -> void:
 	_fm_ok = maxf(_fm_ok - delta, 0.0)
 	_fm_bad = maxf(_fm_bad - delta, 0.0)
 	_beat_kick = maxf(_beat_kick - delta * 6.0, 0.0)
+	_hype_t = maxf(_hype_t - delta, 0.0)
 	var practising := active and in_beat_practice()
 	_zoom = move_toward(_zoom, 1.0 if in_beat_practice() else 0.0, delta / 0.45)
 	if active and light_state == "lit" and ((not _falling and rise >= 1.0) or practising):
@@ -2793,6 +2835,27 @@ func _blue_flame(tex: Texture2D) -> Texture2D:
 	return ImageTexture.create_from_image(img)
 
 
+## The new-stage flare: x = how far the flame has grown (0..1, towards STAGE_HYPE_SCALE), y = how blue (0..1).
+## It shoots up blue, roars at full size for a moment, then shrinks back and its colour comes home.
+func _hype() -> Vector2:
+	if _hype_t <= 0.0 or Config.STAGE_HYPE_TIME <= 0.0:
+		return Vector2.ZERO
+	var p := 1.0 - _hype_t / Config.STAGE_HYPE_TIME  # 0 -> 1 over the flare
+	var grow := 1.0
+	if p < 0.2:
+		grow = 1.0 - pow(1.0 - p / 0.2, 3.0)  # shoots up fast
+	elif p < 0.5:
+		grow = 1.0 + 0.05 * sin(_t * 40.0)    # roaring
+	else:
+		grow = 1.0 - smoothstep(0.5, 1.0, p)  # settles back down
+	var blue := 1.0
+	if p < 0.08:
+		blue = p / 0.08
+	elif p > 0.55:
+		blue = 1.0 - smoothstep(0.55, 0.9, p)
+	return Vector2(grow, blue)
+
+
 ## Your lighter, held at the left like a torch. Lid frame from the open/close animation; the flame is the timer.
 func _draw_lighter() -> void:
 	if _lighter_frames.is_empty():
@@ -2827,11 +2890,18 @@ func _draw_lighter() -> void:
 	var base := o + FLAME_ANCHOR * sc
 	if not _flame_frames.is_empty():
 		# your 8-frame flicker; its bottom (the blue gas) sits in the chimney
-		var frames := _flame_frames_blue if deep_focus() and _flame_frames_blue.size() == _flame_frames.size() else _flame_frames
-		var ftex := frames[int(_t * Config.FLAME_FPS) % frames.size()]
+		var has_blue := _flame_frames_blue.size() == _flame_frames.size()
+		var frames := _flame_frames_blue if deep_focus() and has_blue else _flame_frames
+		var hype := _hype()  # a new stage: x = how much bigger, y = how blue
+		k = lerpf(k, Config.STAGE_HYPE_SCALE, hype.x)
+		var i := int(_t * Config.FLAME_FPS) % frames.size()
+		var ftex := frames[i]
 		var fs := (ftex.get_size() * sc * k).round()
 		var bottom := base + Vector2(0, Config.FLAME_SINK * sc)
-		_ci.draw_texture_rect(ftex, Rect2((bottom - Vector2(fs.x * 0.5, fs.y)).round(), fs), false)
+		var rect := Rect2((bottom - Vector2(fs.x * 0.5, fs.y)).round(), fs)
+		_ci.draw_texture_rect(ftex, rect, false)
+		if hype.y > 0.0 and has_blue and frames != _flame_frames_blue:
+			_ci.draw_texture_rect(_flame_frames_blue[i], rect, false, Color(1, 1, 1, hype.y))  # fades blue over the top
 
 
 ## Gilded Umbrella: the gems falling from the roof (spinning), with a warning line under the one aimed at you.

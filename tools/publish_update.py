@@ -1,6 +1,7 @@
 """Publishes an update: players' games download it the next time they start (see scripts/updater.gd).
 
     py -3.12 tools/publish_update.py 0.5 "What changed"
+    py -3.12 tools/publish_update.py 0.7.1hf "Hotfix"                (a letter suffix is allowed; only the digits are compared)
     py -3.12 tools/publish_update.py --attach-full                 (adds the full download to the current release)
 
 Versions: Indev 0.1 is the first release. Releases are titled "Geode Galore Indev <version>"
@@ -157,19 +158,24 @@ def attach_full():
     print("Added %s to v%s." % (FULL_ZIP, version))
 
 
+def _nums(version):
+    """[0, 7, 1] for "0.7.1hf": only the digits count, like GameVersion.is_newer in the game."""
+    return [int(re.sub(r"\D", "", x) or 0) for x in version.split(".")]
+
+
 def main():
     if "--attach-full" in sys.argv:
         return attach_full()
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     full = "--no-full" not in sys.argv  # every release gets the full download (--no-full skips it)
-    if not args or not re.fullmatch(r"\d+(\.\d+){0,3}", args[0]):
+    if not args or not re.fullmatch(r"\d+(\.\d+){0,3}[a-z]*", args[0]):  # a letter suffix is fine: 0.7.1hf
         raise SystemExit(__doc__)
     version, notes = args[0], (args[1] if len(args) > 1 else "")
     text = open(VERSION_FILE, encoding="utf-8").read()
     old = re.search(r'const VERSION := "([^"]+)"', text).group(1)
     repo = re.search(r'const RELEASES_REPO := "([^"]+)"', text).group(1)
     first = version == old and not tag_exists("v" + version)  # the very first release of this version
-    if not first and [int(x) for x in version.split(".")] <= [int(x) for x in old.split(".")]:
+    if not first and _nums(version) <= _nums(old):
         raise SystemExit("%s isn't newer than the current version %s" % (version, old))
     old_text = text
     text = text.replace('const VERSION := "%s"' % old, 'const VERSION := "%s"' % version)

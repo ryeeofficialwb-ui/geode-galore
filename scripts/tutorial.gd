@@ -16,6 +16,9 @@ const TOUR := ["anvil", "backpack", "shop", "mine", "lighter", "act_slash", "wic
 ## Practising in the tour: once you've done the move (or this many good flicks) the step finishes by itself.
 const PRACTICE_FLICKS := 6
 const PRACTICE_NEXT_DELAY := 1.0  # seconds to see "Nice!" before the next step
+## A tip up during a real trip freezes the light and wick, but you can still do moves under it: after this
+## many finished moves the tip closes by itself (otherwise leaving it open = a wick that never burns).
+const TIP_CLOSE_AFTER_MOVES := 3
 
 var main                        # scripts/main.gd (set before adding the tutorial)
 var steps: Array[Dictionary] = []
@@ -31,6 +34,7 @@ var _back: Button
 var _next: Button
 var _stop: Button
 var _tries := 0
+var _moves_under := 0           # moves finished while this tip is up (see TIP_CLOSE_AFTER_MOVES)
 var _t := 0.0
 var _table := {}                # the tips (built once, see _tips())
 
@@ -75,6 +79,7 @@ func _ready() -> void:
 	_next.custom_minimum_size.x = 110
 	row.add_child(_next)
 	main.wall_view.practiced.connect(_on_practiced)
+	main.wall_view.action_done.connect(_on_action_done)
 
 
 func _label(text: String, fs: int, col: Color) -> Label:
@@ -178,6 +183,7 @@ func _show_tip(id: String) -> void:
 	touring = false
 	steps.assign([s])
 	Game.mark_tip(id)
+	_moves_under = 0
 	visible = true
 	_go(0)
 
@@ -265,6 +271,19 @@ func _on_practiced(_kind: String) -> void:
 	get_tree().create_timer(PRACTICE_NEXT_DELAY).timeout.connect(func():
 		if visible and touring and index == at:
 			_go(index + 1))
+
+
+## A move finished on the wall while a tip is up (a real trip, not the tour's practice): the mine is frozen
+## under the tip, so after a few moves the tip goes away and the wick burns again.
+func _on_action_done(_perfect: bool, _at: Vector2, _combo: int, _mult: float) -> void:
+	if not visible or touring or main.wall_view.practice != "":
+		return
+	_moves_under += 1
+	var left := TIP_CLOSE_AFTER_MOVES - _moves_under
+	if left <= 0:
+		close()
+	else:
+		_status.text = "%d more move%s and this tip closes" % [left, "" if left == 1 else "s"]
 
 
 func practicing() -> bool:

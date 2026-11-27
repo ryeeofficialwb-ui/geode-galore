@@ -78,7 +78,7 @@ const INSTANT_RESTOCK_COST := 25  # configurable
 const INSTANT_RESTOCK_GROWTH := 2.5  # configurable
 
 
-# ------------------------------------------------------------------ DWARVEN SHOP  (tickets & upgrades)
+# ------------------------------------------------------------------ UPGRADES SHOP  (tickets & upgrades)
 ## You need a TICKET to go down the mine (the mining wall). One ticket = one trip: it lasts until you
 ## run out of lives (then you're sent back up). Going Back to your rocks doesn't end the trip.
 ## Every CAVE (see CAVES below) has its own tickets. The free ticket is always for the first cave.
@@ -132,9 +132,9 @@ const STAGE_TIER_SHIFT := 0.35  # configurable  (per stage: how much more the ca
 ##   cost          coins for level 1; every level costs cost_growth times more than the one before
 ##   art: assets/ui/upgrades/<id>.png (placeholders made by tools/make_ui.py)
 const UPGRADES := {  # configurable (whole table)
-	"miners_favor": {"name": "Miner's Favor", "text": "ore chance", "first": 0.075, "max": 75.0, "levels": 250, "cost": 40, "cost_growth": 1.022},
+	"miners_favor": {"name": "Miner's Favor", "text": "ore chance", "first": 0.08, "max": 80.0, "levels": 250, "cost": 40, "cost_growth": 1.022},
 	"jewelers_favor": {"name": "Jeweler's Favor", "text": "gem chance", "first": 0.075, "max": 75.0, "levels": 250, "cost": 60, "cost_growth": 1.022},
-	"rocky_riches": {"name": "Rocky Riches", "text": "ores per drop", "first": 0.165, "max": 165.0, "levels": 250, "cost": 50, "cost_growth": 1.022},  # max +165% = x2.65 ores (gems don't count)
+	"rocky_riches": {"name": "Rocky Riches", "text": "ores per drop", "first": 0.14, "max": 140.0, "levels": 250, "cost": 50, "cost_growth": 1.022},  # max +140% = x2.4 ores (gems don't count)
 	"digging_expert": {"name": "Digging Expert", "text": "coins in the mine", "first": 2.5, "max": 400.0, "levels": 250, "cost": 30, "cost_growth": 1.022},
 	"fools_gold": {"name": "Fool's Gold", "text": "chance to sell for more", "first": 0.2, "max": 20.0, "levels": 250, "cost": 75, "cost_growth": 1.022},
 	"heat_of_the_forge": {"name": "Heat of the Forge", "text": "light per lighter flick", "first": 0.04, "max": 10.0, "levels": 250, "cost": 60, "cost_growth": 1.022},
@@ -151,7 +151,7 @@ const UPGRADES := {  # configurable (whole table)
 }
 const FOOLS_GOLD_BONUS := 15.0  # configurable  (% extra a Fool's Gold sale pays)
 const FOOLS_GOLD_GEMS := true  # configurable  (false = Fool's Gold only works when selling ores, not gems)
-## REBIRTH (Dwarven Shop): the whole game starts over - coins, rocks, ores, upgrades, caves and tickets are wiped -
+## REBIRTH (Upgrades): the whole game starts over - coins, rocks, ores, upgrades, caves and tickets are wiped -
 ## for REBIRTH_SLOTS more artifact slots on every run, forever. At most REBIRTH_MAX times. Each costs coins AND
 ## ores / gems (they're spent: the reset wipes the rest anyway); each one after the first costs REBIRTH_GROWTH x more.
 ## Reset (Settings) wipes Rebirths too.
@@ -219,13 +219,14 @@ const ROCKS := {  # configurable (whole table)
 ## Sorted: all the ORES first, then all the GEMS, each cheapest first (Backpack, Stock Prices and crush results
 ## list them in this order). Add a new one in its section, at its price.
 const ORES := {  # configurable (whole table)
-	# ---------------- ORES (15): Miner's Favor + Rocky Riches boost these ----------------
+	# ---------------- ORES (17): Miner's Favor + Rocky Riches boost these ----------------
 	"lead": {"name": "Lead", "sell_price": 4, "type": "ore", "rare": false, "color": Color("#a99ab5"), "amount": [1, 2]},
 	"mudspec": {"name": "Mudspec", "sell_price": 5, "type": "ore", "rare": false, "color": Color("#b08a66"), "amount": [1, 3]},
 	"copper": {"name": "Copper", "sell_price": 6, "type": "ore", "rare": false, "color": Color("#e8925f"), "amount": [1, 1]},
 	"iron": {"name": "Iron", "sell_price": 8, "type": "ore", "rare": false, "color": Color("#dcc6ba"), "amount": [1, 2]},
 	"zinc": {"name": "Zinc", "sell_price": 11, "type": "ore", "rare": false, "color": Color("#8fd3c9"), "amount": [1, 2]},
 	"polyphite": {"name": "Polyphite", "sell_price": 12, "type": "ore", "rare": false, "color": Color("#b3b864"), "amount": [1, 2]},
+	"rhodonite": {"name": "Rhodonite", "sell_price": 14, "type": "ore", "rare": false, "color": Color("#ec85a6"), "amount": [1, 1]},
 	"rustvein": {"name": "Rustvein", "sell_price": 16, "type": "ore", "rare": false, "color": Color("#f57d4a"), "amount": [1, 2]},
 	"silver": {"name": "Silver", "sell_price": 20, "type": "ore", "rare": false, "color": Color("#dfe9ec"), "amount": [1, 1]},
 	"stibnite": {"name": "Stibnite", "sell_price": 24, "type": "ore", "rare": false, "color": Color("#c7dcd0"), "amount": [1, 2]},
@@ -235,8 +236,8 @@ const ORES := {  # configurable (whole table)
 	"hellspec": {"name": "Hellspec", "sell_price": 150, "type": "ore", "rare": true, "color": Color("#e0503c"), "amount": [1, 1]},
 	"uranium": {"name": "Uranium", "sell_price": 200, "type": "ore", "rare": true, "color": Color("#6cff5a"), "amount": [1, 1]},
 	"daevorium": {"name": "Daevorium", "sell_price": 400, "type": "ore", "rare": true, "color": Color("#ff3d6b"), "amount": [1, 1]},
-	# ---------------- GEMS (19): Jeweler's Favor boosts these ----------------
-	"rhodonite": {"name": "Rhodonite", "sell_price": 14, "type": "gem", "rare": false, "color": Color("#ec85a6"), "amount": [1, 1]},
+	"dreamstone": {"name": "Dreamstone", "sell_price": 1000, "type": "ore", "rare": true, "color": Color("#d9a6ff"), "amount": [1, 1]},
+	# ---------------- GEMS (17): Jeweler's Favor boosts these ----------------
 	"jade": {"name": "Jade", "sell_price": 30, "type": "gem", "rare": false, "color": Color("#62cf9e"), "amount": [1, 1]},
 	"white_quartz": {"name": "White Quartz", "sell_price": 40, "type": "gem", "rare": false, "color": Color("#e6eef0"), "amount": [1, 1]},
 	"rose_quartz": {"name": "Rose Quartz", "sell_price": 55, "type": "gem", "rare": false, "color": Color("#f2a7c3"), "amount": [1, 1]},
@@ -254,7 +255,6 @@ const ORES := {  # configurable (whole table)
 	"emerald": {"name": "Emerald", "sell_price": 500, "type": "gem", "rare": true, "color": Color("#45e3c4"), "amount": [1, 1]},
 	"pearl": {"name": "Pearl", "sell_price": 600, "type": "gem", "rare": true, "color": Color("#f6f2ec"), "amount": [1, 1]},
 	"zapperion": {"name": "Zapperion", "sell_price": 650, "type": "gem", "rare": true, "color": Color("#e2e679"), "amount": [1, 1]},
-	"dreamstone": {"name": "Dreamstone", "sell_price": 1000, "type": "gem", "rare": true, "color": Color("#d9a6ff"), "amount": [1, 1]},
 }
 
 
@@ -267,6 +267,7 @@ const ORE_LORE := {  # configurable
 	"iron": "The backbone of every pickaxe in the mine. Rusts if you so much as look at it wrong.",
 	"zinc": "Brown nodules with a teal heart. Mixed with copper it becomes brass, the dwarves' favourite trim.",
 	"polyphite": "Olive lumps that grow in clusters, like the rock is sprouting. Smiths grind it into a green flux.",
+	"rhodonite": "A rose-pink stone streaked with black veins. Said to calm a hot-tempered miner.",
 	"rustvein": "Rock shot through with veins of rusted iron. Old miners say the red is the mountain bleeding.",
 	"silver": "Bright, cool and quick to tarnish. Dwarven tales say it keeps the dark things of the deep away.",
 	"stibnite": "Needle-sharp silver crystals of antimony. Pretty, brittle, and poisonous to lick. Don't lick it.",
@@ -276,8 +277,8 @@ const ORE_LORE := {  # configurable
 	"hellspec": "Red shards from near the magma. They stay warm for years; drop one in a bucket and it boils.",
 	"uranium": "Glowing green lumps that hum faintly in your backpack. Worth a lot. Don't keep it under your pillow.",
 	"daevorium": "Deep crimson crystals with a light inside. Old miners won't sleep in a tunnel that has some.",
+	"dreamstone": "Lavender lumps found only in the deepest walls. Sleep beside one and you'll dream of veins of gold.",
 	# ---- gems ----
-	"rhodonite": "A rose-pink stone streaked with black veins. Said to calm a hot-tempered miner.",
 	"jade": "A tough green stone, harder to break than steel. Carvers spend a lifetime on a single piece.",
 	"white_quartz": "Clear white quartz, as common in the deep as sand on a beach - but a clean one still sparkles.",
 	"rose_quartz": "Soft pink quartz. Miners carry a piece for luck and give the best ones away.",
@@ -295,7 +296,6 @@ const ORE_LORE := {  # configurable
 	"emerald": "Green beryl full of tiny flaws the jewellers call its 'garden'. A flawless one is rarer than a diamond.",
 	"pearl": "A perfect white pearl, somehow grown in stone. Nobody can explain it, and everybody wants one.",
 	"zapperion": "A yellow-green crystal that crackles when touched. Nobody knows what it is, but lamps flicker when it's near.",
-	"dreamstone": "Lavender lumps found only in the deepest walls. Sleep beside one and you'll dream of veins of gold.",
 }
 
 
@@ -386,7 +386,7 @@ const ITEMS := {  # configurable (names & texts)
 		"text": "No screen shaking, flashing or red edges bother you. x2 coins."},
 	"philosophers_stone": {"name": "Philosopher's Stone",
 		"text": "Every move you finish turns into Pebbles: as many as your combo, up to 10."},
-	"hot_hands": {"name": "Hot Hands",
+	"hot_hands": {"name": "Sapphire's Clover",
 		"text": "Every stage you clear doubles ALL your rewards - and makes the mine 50% harder. Forever."},
 	"minecart": {"name": "Minecart",
 		"text": "Lose the run and you still take home 25% of its loot (coins, ores, rocks)."},
@@ -587,7 +587,7 @@ const FLICK_BEAT_SHAKE := 3.0  # configurable  (px the FLICK bar jolts on every 
 ## BEAT_COUNTDOWN of those seconds count down 3, 2, 1 with a screen flash each; after 1 the moves start.
 const BEAT_PRACTICE_TIME := 5.0  # configurable  (seconds in all, the countdown included; 0 = straight back to the game)
 const BEAT_PRACTICE_ZOOM := 1.7  # configurable  (how big the FLICK bar gets while you practise)
-const BEAT_PRACTICE_DIM := 0.85  # configurable  (how dark the whole game goes while you practise; only the FLICK bar stays lit)
+const BEAT_PRACTICE_DIM := 1.0  # configurable  (how dark the whole game goes while you practise; 1 = all black, only the zoomed FLICK bar is on screen)
 const BEAT_COUNTDOWN := 3  # configurable  (3, 2, 1; 0 = no countdown)
 const COUNTDOWN_SHAKE := 6.0  # configurable  (px the screen shakes on each number; 0 = none)
 const COUNTDOWN_RED := 0.6  # configurable  (how strong the red stress edges come in on each number; 0 = none)
@@ -629,6 +629,9 @@ const FULL_FLASH_TIME := 0.35  # configurable  (seconds the flash takes to fade)
 const FLAME_FPS := 11.0  # configurable  (speed of the flame animation: assets/lighter/flame_0.png ... flame_7.png)
 const FLAME_MIN_SIZE := 0.3  # configurable  (the flame shrinks to this size as the light dies; 1 = never shrinks)
 const FLAME_SINK := 3.0  # configurable  (art pixels the bottom of the flame sits down inside the chimney)
+## A new stage starts (after its 3, 2, 1): the flame flares up BLUE and huge to hype you up, then settles back.
+const STAGE_HYPE_TIME := 1.8  # configurable  (seconds the whole flare takes; 0 = off)
+const STAGE_HYPE_SCALE := 2.4  # configurable  (how many times bigger the flame gets at its peak)
 const FLOOD_LIFE_COST := 0.5  # configurable  (lives a flood costs: half a life)
 const LIGHTER_KEY := KEY_SPACE  # configurable  (key to flick the lighter; clicking / tapping the lighter works too - that's how phones do it)
 const START_FLICKS_MIN := 3  # configurable  (flicks before the flame catches when you light it up: random MIN..MAX)
@@ -709,6 +712,8 @@ const ZIGZAG_WIDTH := 80.0  # configurable  (px the zigzag swings to each side .
 const ZIGZAG_WIDTH_VARY := Vector2(0.6, 1.4)  # configurable  (... times a random MIN..MAX: narrow to wide)
 const ZIGZAG_CURVE_CHANCE := 35.0  # configurable  (% of zigzags bent into an arch)
 const ZIGZAG_ROUND_CHANCE := 30.0  # configurable  (% of zigzags with smooth, rounded turns instead of sharp ones)
+const ZIGZAG_MIN_GAP := 36.0  # configurable  (px legs of a zigzag must stay apart, so they never stack on each other)
+const ZIGZAG_MIN_ANGLE := 30.0  # configurable  (degrees; the sharpest a turn may be, so its two legs don't overlap)
 const ZIGZAG_PERFECT_TOLERANCE := 16.0  # configurable  (px you may stray and still be PERFECT)
 const ZIGZAG_OK_TOLERANCE := 40.0  # configurable  (px; stray further and it's a MISS)
 const ZIGZAG_CORNER_RADIUS := 34.0  # configurable  (px; you must pass this close to EVERY corner - no straight-line shortcuts)

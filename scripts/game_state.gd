@@ -63,7 +63,7 @@ var run_used := {}         # consumable id -> run_stages when it was used up (it
 var run_stages := 0        # stages cleared this run
 var ram_uses := 0          # Ram uses left
 var run_swapped := {}      # artifact id -> run_stages when you swapped it out (it can't be offered for SWAP_COOLDOWN stages)
-var hot_stages := 0        # Hot Hands: stages cleared while holding it (rewards and difficulty grow with it)
+var hot_stages := 0        # Sapphire's Clover: stages cleared while holding it (rewards and difficulty grow with it)
 var dice_half_stage := -1  # Dice of Dwarves rolled 3-4: walls need half the moves on this stage
 var dice_wick_stage := -1  # Dice of Dwarves rolled 5-6: a free Extra Wick on this stage
 var pet_feeds := 0         # Pet Rock: feeds left before it wanders off
@@ -429,7 +429,7 @@ func wall_cleared() -> bool:
 		if trip_active:
 			if has_item("hot_hands"):
 				hot_stages += 1
-				hot = "HOT HANDS!  Rewards x%s - but the mine is x%s harder" % [_short(hot_reward()), _short(hot_harder())]
+				hot = "SAPPHIRE'S CLOVER!  Rewards x%s - but the mine is x%s harder" % [_short(hot_reward()), _short(hot_harder())]
 			for k in item_count("dice_of_dwarves"):
 				var r := roll_dice()
 				dice = r if dice == "" else dice + "\n" + r
@@ -1007,7 +1007,7 @@ func mine_coins(amount: int) -> void:
 		add_coins(amount)
 
 
-## Rewards on everything (coins, ores, rocks, Draupnir sales): Death's Gambit x10, Hot Hands x2 per stage
+## Rewards on everything (coins, ores, rocks, Draupnir sales): Death's Gambit x10, Sapphire's Clover x2 per stage
 ## cleared, Rapid Fire x3.
 func reward_mult() -> float:
 	if not trip_active:
@@ -1015,12 +1015,12 @@ func reward_mult() -> float:
 	return pow(Config.GAMBIT_REWARD, item_count("deaths_gambit")) * hot_reward() * pow(Config.RAPID_FIRE_REWARD, item_count("rapid_fire"))
 
 
-## Hot Hands: rewards x HOT_HANDS_REWARD for every stage cleared while you hold it (a Copy / Catto on it: again).
+## Sapphire's Clover: rewards x HOT_HANDS_REWARD for every stage cleared while you hold it (a Copy / Catto on it: again).
 func hot_reward() -> float:
 	return pow(Config.HOT_HANDS_REWARD, hot_stages * item_count("hot_hands"))
 
 
-## Hot Hands: the mine x HOT_HANDS_HARDER harder for every stage cleared while you hold it.
+## Sapphire's Clover: the mine x HOT_HANDS_HARDER harder for every stage cleared while you hold it.
 func hot_harder() -> float:
 	return pow(Config.HOT_HANDS_HARDER, hot_stages * item_count("hot_hands"))
 
@@ -1045,7 +1045,7 @@ static func _short(v: float) -> String:
 
 
 ## Every artifact that multiplies the mine's coins: Golden Apple, Draupnir, Familiar Circle, Art of Peace,
-## Mandrake and the rewards on everything (Death's Gambit, Hot Hands, Rapid Fire).
+## Mandrake and the rewards on everything (Death's Gambit, Sapphire's Clover, Rapid Fire).
 func artifact_coin_mult() -> float:
 	if not trip_active:
 		return 1.0

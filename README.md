@@ -30,7 +30,7 @@ Short on coins? Click **< Mine** on the left to go to the mining wall and earn c
 (you need a **ticket** for one of the **caves**: Shop > Caves).
 
 **Screens**
-- **Top bar:** coins, your mine **tickets**, **Shop** (four tabs: **Rock Shop**, **Dwarven Shop**, **Caves** and **Stock Prices**), the **Backpack** icon (your ores & gems, sell them here; the number next to it is how many you carry), the **Settings** gear (sound on/off, music volume, sound-effect volume, hint text, tips, reset), **?** (a short tour).
+- **Top bar:** coins, your mine **tickets**, **Shop** (four tabs: **Rock Shop**, **Upgrades**, **Caves** and **Stock Prices**), the **Backpack** icon (your ores & gems, sell them here; the number next to it is how many you carry), the **Settings** gear (sound on/off, music volume, sound-effect volume, hint text, tips, reset), **?** (a short tour).
 - **Practice** (under the Mine arrow): pick any activity - every move, lighter flicking or relighting - and play it as long as you like. No lighter to look after, no ticket, no lives, and **no coins**. Back puts the mine back exactly as you left it.
 - **Tips as you play:** no long tutorial up front. The first time something happens (your first rock, first sale, running out of rocks, your first trip down the mine, each move style the first time it shows up, your light getting low, the lighter going out, your first lost life) a short tip pops up **once**, with a spotlight on what it's about; the mine pauses while it's up. **No more tips** (or Settings > Tips) turns them off. **?** plays a short 6-step tour (you can try the lighter and a move with no timer). Old saves that finished the old tutorial only get tips for the new moves.
 - **Main screen:** the rock in the middle, **Your Rocks** on the right, **< Mine** arrow on the left.
@@ -63,7 +63,7 @@ Short on coins? Click **< Mine** on the left to go to the mining wall and earn c
   1-100 coins, 11 skip a stage, 12 the run is over; while you hold it, a dead light costs a life with no relighting), Coin of Deceit (double or lose this run's
   coins at a break), Ram (R: through 3 walls, 2 uses), Golden Apple (x2.5 coins), Standard Gloves (20% more light),
   Art of Peace (no shaking / flashing / red edges, x2 coins), Philosopher's Stone (Pebbles = your combo, up to 10, per move).
-  Hot Hands (every stage cleared doubles all rewards and makes the mine 50% harder, forever), Minecart / Backpack
+  Sapphire's Clover (every stage cleared doubles all rewards and makes the mine 50% harder, forever), Minecart / Backpack
   (lose the run, keep 25% / 30% of its loot), Great Ham (H: +2 lives, used up), Fireflies (1 in 7 moves done for you),
   Miner's Hat (a light round your cursor), Mandrake (screams when it gets darker, +20% coins and rocks), Spike Boots
   (every move counts twice), Rapid Fire (the mine runs 3x faster, x3 rewards), Pet Rock (at a break, 1000 coins'
@@ -113,7 +113,7 @@ Short on coins? Click **< Mine** on the left to go to the mining wall and earn c
   stages lean to its higher tiers (`ROCK_TIERS`, `STAGE_STONE_*`, `STAGE_ROCK_*`, `STAGE_TIER_SHIFT`).
   **< Mine** opens **Select Mine**: every cave with your tickets, Buy ticket and Go down (and the free ticket).
   On a trip your cave's row says **Continue**. (The ? tour's visit to the wall is free.)
-- **Dwarven Shop** (second tab of the Shop):
+- **Upgrades** (second tab of the Shop):
   - **Upgrades** (level 1 gives exactly the first number, the last level exactly the max, a smooth curve in
     between):
 
@@ -243,7 +243,7 @@ Every line you can change ends with `# configurable`. Save the file and press Pl
 | Shop (the shelf) | `RESTOCK_SECONDS`, `MARKET_TIME_OFFSET` (the clock everyone shares: Philippine time), `MARKET_HISTORY`, instant-restock cost and growth; each rock's `stock_chance` / `stock_max` are in `ROCKS` |
 | Artifacts | `ITEM_SLOTS`, `ITEM_CHOICES`, the `ITEMS` table (names, texts, `once`, `stack`), consumables' cooldown / unlock cost, Midas (`MIDAS_*`), Dynamite and Ram keys / charges, and each artifact's numbers (`HARD_AS_NAILS_CHANCE`, `ADRENALINE_CHANCE`, `CATS_EYES_*`, `DRUNK_*`, `ROCK_ARTIFACTS`, `GAMBIT_*`, `MUSHROOM_WALLS`, `UMBRELLA_*`, `DROPPED_LIGHTER_TIME`, `MOLERATS_PAY`, `DRAUPNIR_*`, `DIAMOND_PICK_MOVES`, `FAMILIAR_*`, `DICE_GOLD`, `GOLDEN_APPLE_COINS`, `STANDARD_GLOVES_LIGHT`, `ART_OF_PEACE_COINS`...) |
 | Market | lowest / highest price (`MARKET_MIN` / `MARKET_MAX`, 10% / 200%), how far prices jump each restock (`MARKET_SWING`), how fast they drift back to normal (`MARKET_PULL`), the green / red colours |
-| Dwarven Shop & caves | `TICKET_PRICE`, `FREE_TICKET_SECONDS`, `START_TICKETS`, the `CAVES` table (name, wall tile, ticket price, coins, fuel, stone chance), `CAVE_STONE_ANY_EQUAL`, the `UPGRADES` table (name, first / max bonus, levels, cost, cost growth), `FOOLS_GOLD_BONUS`, `FOOLS_GOLD_GEMS`, Rebirth (`REBIRTH_MAX`, `REBIRTH_SLOTS`, `REBIRTH_COINS`, `REBIRTH_ORES`, `REBIRTH_GROWTH`) |
+| Upgrades & caves | `TICKET_PRICE`, `FREE_TICKET_SECONDS`, `START_TICKETS`, the `CAVES` table (name, wall tile, ticket price, coins, fuel, stone chance), `CAVE_STONE_ANY_EQUAL`, the `UPGRADES` table (name, first / max bonus, levels, cost, cost growth), `FOOLS_GOLD_BONUS`, `FOOLS_GOLD_GEMS`, Rebirth (`REBIRTH_MAX`, `REBIRTH_SLOTS`, `REBIRTH_COINS`, `REBIRTH_ORES`, `REBIRTH_GROWTH`) |
 | `ROCKS` table | name, price, how often it's in stock (`stock_chance`, `stock_max`), hit count, rolls and **drops** (the only ores it can give, with their chances) - written by `tools/tune_drops.py` |
 | `ORES` table | name, sell price, **type** (`"ore"` or `"gem"`: which upgrades boost it), rare (sparkle sound), text color, amount |
 | Audio | volume and pitch variation per sound, music track per screen, fade time, starting music / sound-effect volume |
@@ -331,25 +331,23 @@ Keep the rocks on the same canvas size (32x32). A small rock on a 32x32 canvas s
 All ores (cheapest first), then all gems (cheapest first), in **one texture** - same tool, same atlas script.
 | Ores | Sells for | | Gems | Sells for |
 |---|---|---|---|---|
-| `lead.png` Lead | 4 | | `rhodonite.png` Rhodonite | 14 |
-| `mudspec.png` Mudspec | 5 | | `jade.png` Jade | 30 |
-| `copper.png` Copper | 6 | | `white_quartz.png` White Quartz | 40 |
-| `iron.png` Iron | 8 | | `rose_quartz.png` Rose Quartz | 55 |
-| `zinc.png` Zinc | 11 | | `peridot.png` Peridot | 60 |
-| `polyphite.png` Polyphite | 12 | | `tigers_eye.png` Tiger's Eye | 90 |
-| `rustvein.png` Rustvein | 16 | | `lapis.png` Lapis | 120 |
-| `stibnite.png` Stibnite | 24 | | `aquamarine.png` Aquamarine | 180 |
-| `silver.png` Silver | 20 | | `topaz.png` Topaz | 250 |
-| `veridium.png` Veridium | 35 | | `amethyst.png` Amethyst | 250 |
+| `lead.png` Lead | 4 | | `jade.png` Jade | 30 |
+| `mudspec.png` Mudspec | 5 | | `white_quartz.png` White Quartz | 40 |
+| `copper.png` Copper | 6 | | `rose_quartz.png` Rose Quartz | 55 |
+| `iron.png` Iron | 8 | | `peridot.png` Peridot | 60 |
+| `zinc.png` Zinc | 11 | | `tigers_eye.png` Tiger's Eye | 90 |
+| `polyphite.png` Polyphite | 12 | | `onyx.png` Onyx | 100 |
+| `rhodonite.png` Rhodonite | 14 | | `lapis.png` Lapis | 120 |
+| `rustvein.png` Rustvein | 16 | | `aquamarine.png` Aquamarine | 180 |
+| `silver.png` Silver | 20 | | `tourmaline.png` Tourmaline | 200 |
+| `stibnite.png` Stibnite | 24 | | `amethyst.png` Amethyst | 250 |
+| `veridium.png` Veridium | 35 | | `ruby.png` Ruby | 250 |
 | `gold.png` Gold | 45 | | `sapphire.png` Sapphire | 250 |
-| `cryo_core.png` Cryo-core | 80 | | `tourmaline.png` Tourmaline | 200 |
-| `hellspec.png` Hellspec | 150 | | `ruby.png` Ruby | 250 |
-| `uranium.png` Uranium | 200 | | `onyx.png` Onyx | 100 |
-| `daevorium.png` Daevorium | 400 | | `obsidian.png` Obsidian | 350 |
-|  |  | | `emerald.png` Emerald | 500 |
-|  |  | | `pearl.png` Pearl | 600 |
-|  |  | | `zapperion.png` Zapperion | 650 |
-|  |  | | `dreamstone.png` Dreamstone | 1000 |
+| `cryo_core.png` Cryo-core | 80 | | `topaz.png` Topaz | 250 |
+| `hellspec.png` Hellspec | 150 | | `obsidian.png` Obsidian | 350 |
+| `uranium.png` Uranium | 200 | | `emerald.png` Emerald | 500 |
+| `daevorium.png` Daevorium | 400 | | `pearl.png` Pearl | 600 |
+| `dreamstone.png` Dreamstone | 1000 | | `zapperion.png` Zapperion | 650 |
 
 (The real prices are `sell_price` in `ORES`; then the market moves them.) For the upgrades, the left column are
 **ores** (Miner's Favor, Rocky Riches) and the right column **gems** (Jeweler's Favor): the `type` column in `ORES`.
@@ -510,7 +508,7 @@ tools/make_music.py    compresses + encrypts your soundtracks (tools/encrypt_mus
 tools/engine/          the slim engine build profile (the built exe in bin/ is gitignored)
 tools/publish_update.py  publishes an update (export, self-test, commit, tag, push, GitHub Release)
 tools/make_ui.py       pixel UI skin, placeholder upgrade / ticket icons, the 3 new ore icons
-tools/make_upgrade_icons.py  only the newer Dwarven Shop icons (Better Rock Piles, Strongbox, Rebirth)
+tools/make_upgrade_icons.py  only the newer Upgrades icons (Better Rock Piles, Strongbox, Rebirth)
 ```
 
 Save file: `%APPDATA%\Godot\app_userdata\Rich From Rocks\save.cfg` (delete it, or press Reset, to start over).

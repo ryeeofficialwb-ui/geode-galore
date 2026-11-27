@@ -111,7 +111,7 @@ var shop_clock: Label               # Philippine time (the shelf and prices foll
 var shop_timer: Label
 var restock_btn: Button
 var reset_confirm: ConfirmationDialog
-var rebirth_confirm: ConfirmationDialog  # Dwarven Shop > Rebirth (asks first: it wipes the game)
+var rebirth_confirm: ConfirmationDialog  # Upgrades > Rebirth (asks first: it wipes the game)
 var leave_confirm: ConfirmationDialog   # Back on a run = cash out (asks first)
 var toast_label: Label
 var toast_tween: Tween
@@ -233,10 +233,14 @@ func _process(delta: float) -> void:
 			tutorial.tip("beat", true)
 	if on_wall and wall_view.peaceful():
 		_shake = 0.0  # Art of Peace: the screen never shakes
-	# practising the beat: the whole game goes dark, the wall's buttons too
-	var dark := 1.0 - Config.BEAT_PRACTICE_DIM * wall_view.zoom_amount()
-	for c in [back_btn, wall_book_btn, dynamite_btn, ram_btn, ham_btn, items_hud]:
-		(c as CanvasItem).modulate = Color(dark, dark, dark)
+	# practising the beat: the zoomed FLICK bar is all you see - the wall's buttons and floating texts fade
+	# away too (and can't be clicked while they're gone), then come back when it zooms out
+	var zoom := wall_view.zoom_amount()
+	var shown := 1.0 - Config.BEAT_PRACTICE_DIM * zoom
+	for c in [back_btn, wall_book_btn, dynamite_btn, ram_btn, ham_btn, items_hud, fx_layer]:
+		(c as CanvasItem).modulate = Color(1, 1, 1, shown)
+	for b in [back_btn, wall_book_btn, dynamite_btn, ram_btn, ham_btn]:
+		(b as Control).mouse_filter = Control.MOUSE_FILTER_IGNORE if zoom > 0.0 else Control.MOUSE_FILTER_STOP
 	if on_wall and wall_view.active and wall_view.practice == "" and not wall_view.free_practice:
 		Game.note_time(delta / maxf(Engine.time_scale, 0.01))  # real seconds, even with Rapid Fire
 	# Rapid Fire: everything in the mine runs faster (only while you're mining, not on breaks or in menus)
@@ -469,7 +473,7 @@ func _make_overlay(title: String, close: Callable) -> Array:
 	return [ov, v, tl]
 
 
-## The shop has three tabs: rocks (limited stock, market prices), the Dwarven Shop (upgrades) and Caves
+## The shop has three tabs: rocks (limited stock, market prices), Upgrades and Caves
 ## (a ticket for each cave).
 func _build_shop() -> void:
 	var o := _make_overlay("Rock Shop", _close_overlays)
@@ -481,7 +485,7 @@ func _build_shop() -> void:
 	v.add_child(tabs)
 	var grp := ButtonGroup.new()
 	tab_rocks = _button("Rock Shop", _show_shop_tab.bind("rocks"))
-	tab_dwarf = _button("Dwarven Shop", _show_shop_tab.bind("dwarf"))
+	tab_dwarf = _button("Upgrades", _show_shop_tab.bind("dwarf"))
 	tab_caves = _button("Caves", _show_shop_tab.bind("caves"))
 	tab_stocks = _button("Stock Prices", _show_shop_tab.bind("stocks"))
 	for b in [tab_rocks, tab_dwarf, tab_caves, tab_stocks]:
@@ -594,7 +598,7 @@ func _show_shop_tab(tab: String, sound := true) -> void:
 	dwarf_page.visible = tab == "dwarf"
 	cave_page.visible = tab == "caves"
 	stock_page.visible = tab == "stocks"
-	shop_title.text = {"rocks": "Rock Shop", "dwarf": "Dwarven Shop", "caves": "Caves", "stocks": "Stock Prices"}.get(tab, "Shop")
+	shop_title.text = {"rocks": "Rock Shop", "dwarf": "Upgrades", "caves": "Caves", "stocks": "Stock Prices"}.get(tab, "Shop")
 	tab_rocks.set_pressed_no_signal(tab == "rocks")
 	tab_dwarf.set_pressed_no_signal(tab == "dwarf")
 	tab_caves.set_pressed_no_signal(tab == "caves")
