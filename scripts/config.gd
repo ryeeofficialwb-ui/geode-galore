@@ -92,18 +92,21 @@ const START_TICKETS := 0  # configurable  (first-cave tickets in a new game; it 
 ##   tile          the wall tile (32 x 32, repeated over the wall). Cut from art_source/cave_sheet.png
 ##   ticket_price  coins for one ticket
 ##   coins         x coins you earn down there
-##   fuel          how long your light lasts compared to the first cave (0.8 = fades 20% faster)
+##   fuel          how long your light lasts compared to the first cave (1 / 1.03 = fades 3% faster). Only the
+##                 Crystal Grotto has a faster light now; the other caves keep their rewards with a normal light.
 ##   stone_chance  % chance that clearing stage 1 finds a pile of rocks for your bag (more on later stages)
 ##   tiers         [lowest, highest] rock tier this cave's piles can hold (ROCK_TIERS: 1 = cheapest .. 5 = priciest)
 ##   head_start    the walls act as if you were this many stages further: more actions per wall and the
 ##                 harder move styles sooner (see ACTION_UNLOCK). The Crystal Grotto has every move from stage 1.
+##   bpm           your heart rate on this cave's stage 1 (the pricier the cave, the faster): the lowest it can go
+##                 there. Every stage after that raises it HEART_STAGE_BPM (see HEART_REST_BPM).
 const CAVES := {  # configurable (whole table)
-	"old_mine": {"name": "Old Mine", "tile": "res://assets/wall/wall_tile.png", "ticket_price": TICKET_PRICE, "coins": 1.0, "fuel": 1.0, "stone_chance": 1.0, "tiers": [1, 1], "head_start": 0},
-	"shale_hollow": {"name": "Shale Hollow", "tile": "res://assets/wall/shale_hollow.png", "ticket_price": 250, "coins": 1.4, "fuel": 0.95, "stone_chance": 1.8, "tiers": [1, 2], "head_start": 1},
-	"crimson_deep": {"name": "Crimson Deep", "tile": "res://assets/wall/crimson_deep.png", "ticket_price": 600, "coins": 1.9, "fuel": 0.9, "stone_chance": 2.6, "tiers": [1, 3], "head_start": 2},
-	"blackrock_tunnels": {"name": "Blackrock Tunnels", "tile": "res://assets/wall/blackrock_tunnels.png", "ticket_price": 1400, "coins": 2.6, "fuel": 0.85, "stone_chance": 3.4, "tiers": [2, 4], "head_start": 3},
-	"magma_veins": {"name": "Magma Veins", "tile": "res://assets/wall/magma_veins.png", "ticket_price": 3000, "coins": 3.5, "fuel": 0.8, "stone_chance": 4.2, "tiers": [3, 5], "head_start": 4},
-	"crystal_grotto": {"name": "Crystal Grotto", "tile": "res://assets/wall/crystal_grotto.png", "ticket_price": 6500, "coins": 4.75, "fuel": 0.75, "stone_chance": 5.0, "tiers": [4, 5], "head_start": 5},
+	"old_mine": {"name": "Old Mine", "tile": "res://assets/wall/wall_tile.png", "ticket_price": TICKET_PRICE, "coins": 1.0, "fuel": 1.0, "stone_chance": 1.0, "tiers": [1, 1], "head_start": 0, "bpm": 60},
+	"shale_hollow": {"name": "Shale Hollow", "tile": "res://assets/wall/shale_hollow.png", "ticket_price": 250, "coins": 1.4, "fuel": 1.0, "stone_chance": 1.8, "tiers": [1, 2], "head_start": 1, "bpm": 65},
+	"crimson_deep": {"name": "Crimson Deep", "tile": "res://assets/wall/crimson_deep.png", "ticket_price": 600, "coins": 1.9, "fuel": 1.0, "stone_chance": 2.6, "tiers": [1, 3], "head_start": 2, "bpm": 70},
+	"blackrock_tunnels": {"name": "Blackrock Tunnels", "tile": "res://assets/wall/blackrock_tunnels.png", "ticket_price": 1400, "coins": 2.6, "fuel": 1.0, "stone_chance": 3.4, "tiers": [2, 4], "head_start": 3, "bpm": 75},
+	"magma_veins": {"name": "Magma Veins", "tile": "res://assets/wall/magma_veins.png", "ticket_price": 3000, "coins": 3.5, "fuel": 1.0, "stone_chance": 4.2, "tiers": [3, 5], "head_start": 4, "bpm": 80},
+	"crystal_grotto": {"name": "Crystal Grotto", "tile": "res://assets/wall/crystal_grotto.png", "ticket_price": 6500, "coins": 4.75, "fuel": 1.0 / 1.03, "stone_chance": 5.0, "tiers": [4, 5], "head_start": 5, "bpm": 85},
 }
 ## Rock TIERS: every rock sorted by price and cut into this many equal groups (tier 1 = the cheapest rocks).
 const ROCK_TIERS := 5  # configurable
@@ -386,7 +389,7 @@ const ITEMS := {  # configurable (names & texts)
 		"text": "No screen shaking, flashing or red edges bother you. x2 coins."},
 	"philosophers_stone": {"name": "Philosopher's Stone",
 		"text": "Every move you finish turns into Pebbles: as many as your combo, up to 10."},
-	"hot_hands": {"name": "Sapphire's Clover",
+	"sapphires_clover": {"name": "Sapphires Clover",
 		"text": "Every stage you clear doubles ALL your rewards - and makes the mine 50% harder. Forever."},
 	"minecart": {"name": "Minecart",
 		"text": "Lose the run and you still take home 25% of its loot (coins, ores, rocks)."},
@@ -404,6 +407,9 @@ const ITEMS := {  # configurable (names & texts)
 		"text": "Every move you finish counts twice: walls come down in half the moves."},
 	"rapid_fire": {"name": "Rapid Fire",
 		"text": "Everything in the mine runs 3x faster. Every reward x3."},
+	"blackboard": {"name": "Blackboard",
+		"text": "Every move turns into the alphabet: trace the letters to crack them into the wall (lift your pen whenever you like). 1 letter, then 2, 3, up to 4 - against the clock.",
+		"book": "Every move turns into writing the alphabet - no other moves show up. Trace each letter to crack it into the wall; you can let go and carry on whenever you like, any stroke in any order. Off the letter while pressing is a stray. Its timer is your wick: 1 letter on the first stages, then 2, 3 and at most 4. The clock gets faster every stage, and each time a letter is added it resets to something more forgiving - but never quite as slow as before."},
 	"pet_rock": {"name": "Pet Rock",
 		"text": "At a rest, feed it 1000 coins' worth of rocks from your bag for +1 life. After 3 feeds it wanders off."},
 }
@@ -416,8 +422,8 @@ const CONSUMABLE_UNLOCK_COST := 0.5  # configurable  (part of this run's coins)
 const SWAP_COOLDOWN := 5  # configurable  (stages)
 const CATS_EYES_MISS_WICK := 0.25  # configurable  (part of the whole wick each messed-up move burns: 0.25 = 4 in a row and it's gone)
 const PHILOSOPHERS_MAX := 10  # configurable  (most Pebbles one move can give, in all - extra stones and reward multipliers don't raise it)
-const HOT_HANDS_REWARD := 2.0  # configurable  (rewards x this for every stage cleared while you hold it)
-const HOT_HANDS_HARDER := 1.5  # configurable  (the mine x this much harder for every stage cleared: faster light / wick, stricter moves)
+const CLOVER_REWARD := 2.0  # configurable  (rewards x this for every stage cleared while you hold it)
+const CLOVER_HARDER := 1.5  # configurable  (the mine x this much harder for every stage cleared: faster light / wick, stricter moves)
 const MINECART_KEEP := 0.25  # configurable  (part of the run's loot you keep if the run is lost)
 const BACKPACK_KEEP := 0.30  # configurable
 const GREAT_HAM_LIVES := 2.0  # configurable
@@ -471,15 +477,37 @@ const ADRENALINE_CHANCE := 50.0  # configurable  (%)
 const STRONGER_FLUIDS_GAIN := 0.34  # configurable  (each good flick adds at least this much light: 0.34 = full in 3)
 const BEGINNERS_LUCK_EASE := 1.35  # configurable  (moves this much slower; hit areas and line tolerance this much bigger)
 const DWARVEN_HANDS_CHANCE := 60.0  # configurable  (% per finished move)
+## BLACKBOARD: every move becomes writing the alphabet (nothing else shows up): the letters are guide lines on the
+## wall, and tracing one cracks it into the wall like any other move (no board shows up). You can
+## lift the pen whenever you like and carry on (any stroke, any order, either way). Going off the letter while
+## you press is a stray (the pen lifts, some wick). The move's timer is the wick: it burns down over the letters'
+## time. Letters per move grow with your stage (stage + the cave's head start): BLACKBOARD_STAGES_PER_LETTER
+## stages of 1 letter, then 2, 3, up to BLACKBOARD_MAX_LETTERS. Within a letter count the time per letter shrinks
+## every stage (x BLACKBOARD_SPEEDUP); a new letter count resets it to more forgiving, but every reset starts
+## a bit faster than the last (x BLACKBOARD_NEW_LETTER). With 3 / 3.5 / 0.85 / 0.85:
+##   stage 1-3: 1 letter 3.5, 3.0, 2.5 s   -  4-6: 2 letters 6.0, 5.1, 4.3 s  -  7-9: 3 letters 7.6, 6.5, 5.5 s
+##   10+: 4 letters 8.6, 7.3, 6.2, 5.3 s ... never under BLACKBOARD_LETTER_TIME_MIN a letter.
+const BLACKBOARD_STAGES_PER_LETTER := 3  # configurable
+const BLACKBOARD_MAX_LETTERS := 4  # configurable
+const BLACKBOARD_LETTER_TIME := 3.5  # configurable  (seconds per letter at stage 1)
+const BLACKBOARD_SPEEDUP := 0.85  # configurable  (time per letter x this every stage with the same letter count)
+const BLACKBOARD_NEW_LETTER := 0.85  # configurable  (each new letter count starts this much faster per letter than the last one did)
+const BLACKBOARD_LETTER_TIME_MIN := 1.1  # configurable  (seconds per letter, at the very fastest)
+const BLACKBOARD_PERFECT_PART := 0.6  # configurable  (done within this part of the time with no strays = PERFECT)
+const BLACKBOARD_HIT_RADIUS := 24.0  # configurable  (px round your pen that cracks the letter in (x the stage's move size))
+const BLACKBOARD_OK_TOLERANCE := 58.0  # configurable  (px off the letter while pressing = a stray (x the move size))
+const BLACKBOARD_FINISH := 0.9  # configurable  (part of each letter you must trace)
+const BLACKBOARD_LETTER_HEIGHT := 230.0  # configurable  (px, the biggest a letter gets; smaller when 4 don't fit)
+const BLACKBOARD_LETTERS := "ABCDEFGHIJKLMNOPQRSTUVWXYZ"  # configurable  (the letters it picks from)
 ## The Artifact Book's Tier List: the current META. Re-rank whenever the balance changes - move an id to
 ## another tier (best tier first; within a tier, best first). Artifacts in no tier show up as "?" (unranked).
 const ITEM_TIERS := {  # configurable
-	"S": ["midas_touch", "deaths_gambit", "hot_hands"],
+	"S": ["midas_touch", "deaths_gambit", "sapphires_clover"],
 	"A": ["miners_permit", "dwarven_hands", "draupnir", "golden_apple", "art_of_peace", "adrenaline_shot",
 		"spike_boots", "wall_breaker", "dynamite"],
 	"B": ["copy", "catto", "excavator", "rapid_fire", "familiar_circle", "ram", "defibrillator",
 		"mushroom_of_might", "fireflies", "beginners_luck"],
-	"C": ["diamond_pick", "molerats", "ring_of_luck", "backpack", "extra_wick", "stronger_fluids", "great_ham",
+	"C": ["blackboard", "diamond_pick", "molerats", "ring_of_luck", "backpack", "extra_wick", "stronger_fluids", "great_ham",
 		"ladder", "pet_rock", "cats_eyes", "gilded_umbrella"],
 	"D": ["standard_gloves", "torch", "dice_of_dwarves", "drunk", "minecart", "miners_hat", "hard_as_nails",
 		"philosophers_stone"],
@@ -498,11 +526,11 @@ const TIER_COLORS := {  # configurable
 ## After a random number of actions the wall crumbles and a new one drops in.
 const WALL_TILE_FILE := "res://assets/wall/wall_tile.png"  # configurable  (the tile repeated over the whole wall)
 const WALL_TILE_SCALE := 3  # configurable  (32px tile x 3 = 96px on screen)
-const WALL_ACTIONS_MIN := 4  # configurable  (actions needed to take the wall down: random MIN..MAX)
-const WALL_ACTIONS_MAX := 8  # configurable
-## Scaling difficulty: the further you get (your stage + the cave's head_start), the more actions a wall takes.
-const WALL_ACTIONS_PER_STAGE := 0.5  # configurable  (extra actions per stage above 1: 0.5 = one more every 2 stages)
-const WALL_ACTIONS_EXTRA_MAX := 6  # configurable  (never more than this many extra)
+## Actions a wall needs: random MIN..MAX. The MAX grows by one every WALL_ACTIONS_MAX_EVERY stages (your stage +
+## the cave's head_start), forever: stages 1-3 = 3-5, 4-6 = 3-6, 7-9 = 3-7, 10-12 = 3-8 ...
+const WALL_ACTIONS_MIN := 3  # configurable
+const WALL_ACTIONS_MAX := 5  # configurable  (the most on stages 1..WALL_ACTIONS_MAX_EVERY)
+const WALL_ACTIONS_MAX_EVERY := 3  # configurable  (stages per +1 to the most; 0 = never grows)
 ## Nothing you have to tap, trace or click ever comes closer than this to the window's edges
 ## (buttons, circles, lines, the menu). The lighter is held from below, so it may run off the bottom.
 const SAFE_BORDER := 16  # configurable  (px)
@@ -524,13 +552,15 @@ const ACTION_WEIGHTS := {  # configurable
 	"swirl": 15,    # trace a spiral from the outside in
 	"bigslash": 12, # one huge, very fast swipe right across the wall
 	"spin": 12,     # hold and spin your cursor round a circle, fast (like an osu! spinner)
+	"nail": 14,     # Nail & Hammer: nails pop up all over the wall ("!" on both sides) - hammer every one, fast
 }
+## ("letters" - writing the alphabet - never shows up on its own: only the Blackboard artifact turns every move into it.)
 ## Which stage each move style starts showing up at (your stage + the cave's head_start, see CAVES).
 ## Stages 1-5 add one move each (stage 1 is only Slash); stage 6 brings in all the rest, Tap included
 ## (the circles are the hardest, so they're saved for later / the harder caves).
 const ACTION_UNLOCK := {  # configurable
 	"slash": 1, "zigzag": 2, "drill": 3, "pry": 4, "swirl": 5,
-	"track": 6, "bigslash": 6, "spin": 6, "tap": 6,
+	"track": 6, "bigslash": 6, "spin": 6, "tap": 6, "nail": 4,
 }
 const NO_REPEAT_ACTION := true  # configurable  (true = never the same action twice in a row)
 
@@ -571,24 +601,36 @@ const FLOOD_AT := 1.0  # configurable  (flicking during the steady full blaze fl
 ## TIMED FLICKS: the FLICK bar next to the lighter fills once per HEARTBEAT; a flick only adds light while
 ## the bar is in its gold zone (near the top). Spam it (too soon, or twice in one beat) or wait too long
 ## (too late) and the flick fails: no light, and it burns FLICK_FAIL_WICK_COST of your wick.
-## The beat is your miner's heart rate (beats per minute). It stays the same for a whole wall and only
-## changes when a wall breaks: the deeper the stage and the better you played the last wall, the faster
-## your heart races, from a resting heart up to a heart under stress.
-const HEART_REST_BPM := 60.0  # configurable  (a resting heart: the slowest the bar ever goes - 1 beat a second)
+## The beat is your miner's heart rate (beats per minute), and it changes as you play:
+##   every mistake (a miss, a stray click, a failed move, a mistimed flick, a flood) = +HEART_MISTAKE_BPM,
+##   plus up to HEART_PANIC_BPM more the lower your wick is (about to lose = your heart spikes);
+##   every HEART_CALM_FLICKS good flicks of the lighter = -HEART_CALM_BPM (striking it keeps you calm).
+## It never drops below the stage's floor: the cave's "bpm" (CAVES) on stage 1, +HEART_STAGE_BPM every stage
+## after that (Old Mine: 60, 65, 70 ...), and never goes over HEART_STRESS_BPM. It carries over between walls
+## and stages (a new stage only lifts it to the new floor); a new run starts on the floor.
+const HEART_REST_BPM := 60.0  # configurable  (a resting heart: the slowest the bar ever goes - 1 beat a second; also the Practice slider's lowest)
 const HEART_STRESS_BPM := 180.0  # configurable  (a heart under stress: the fastest it ever goes)
-const HEART_STAGE_BPM := 10.0  # configurable  (beats per minute each stage adds)
-const HEART_PERFORM_BPM := 10.0  # configurable  (played the last wall well (mostly PERFECT) = +this; sloppy / failing = -this)
-const HEART_BPM_STEP := 10.0  # configurable  (the heart rate only ever moves in steps of this: 60, 70, 80 ...; 0 = any number)
+const HEART_STAGE_BPM := 5.0  # configurable  (how much each stage raises the floor: stage 1 = the cave's bpm, stage 2 = +5 ...)
+const HEART_MISTAKE_BPM := 1.0  # configurable  (beats per minute every mistake adds, with a full wick)
+const HEART_PANIC_BPM := 2.0  # configurable  (extra a mistake adds as the wick burns down: + this x how much wick is gone; 0 = always just HEART_MISTAKE_BPM)
+const HEART_CALM_FLICKS := 2  # configurable  (good flicks it takes ...)
+const HEART_CALM_BPM := 1.0  # configurable  (... to calm your heart by this much)
+const PRACTICE_BPM_STEP := 5.0  # configurable  (the Practice screen's heart rate slider moves in steps of this)
 const FLICK_ZONE_CALM := 0.34  # configurable  (size of the gold zone (part of the bar) at a resting heart ...)
 const FLICK_ZONE_STRESS := 0.24  # configurable  (... and at a heart under stress: a slower beat gets a bigger zone)
 const FLICK_BEAT_SHAKE := 3.0  # configurable  (px the FLICK bar jolts on every heartbeat, more at a racing heart; 0 = never)
 ## After every wall (when you leave the break) the next wall drops in and the view zooms in on the FLICK
-## bar for BEAT_PRACTICE_TIME seconds so you can feel the new heartbeat (flicks don't count). The last
-## BEAT_COUNTDOWN of those seconds count down 3, 2, 1 with a screen flash each; after 1 the moves start.
-const BEAT_PRACTICE_TIME := 5.0  # configurable  (seconds in all, the countdown included; 0 = straight back to the game)
-const BEAT_PRACTICE_ZOOM := 1.7  # configurable  (how big the FLICK bar gets while you practise)
-const BEAT_PRACTICE_DIM := 1.0  # configurable  (how dark the whole game goes while you practise; 1 = all black, only the zoomed FLICK bar is on screen)
+## bar for BEAT_PRACTICE_TIME seconds so you can feel your heartbeat (flicks don't count). It ends with a
+## fast 3, 2, 1 (BEAT_COUNTDOWN numbers, BEAT_COUNTDOWN_STEP seconds each) with a screen flash each; after 1
+## the moves start.
+const BEAT_PRACTICE_TIME := 3.0  # configurable  (seconds in all, the countdown included: 2 s to feel the beat + the 1 s countdown; 0 = straight back to the game)
+const BEAT_PRACTICE_ZOOM := 1.7  # configurable  (how big the FLICK bar gets while you practice)
+const BEAT_PRACTICE_DIM := 1.0  # configurable  (how dark the whole game goes while you practice; 1 = all black, only the zoomed FLICK bar is on screen)
 const BEAT_COUNTDOWN := 3  # configurable  (3, 2, 1; 0 = no countdown)
+const BEAT_COUNTDOWN_STEP := 1.0 / 3.0  # configurable  (seconds each number of the countdown is up: 1/3 = the whole 3, 2, 1 in one second; 1 = a calm second each)
+const BEAT_ZOOM_TIME := 0.18  # configurable  (seconds the zoom in to the FLICK bar, and back out, takes)
+## An "Okay" button (or ENTER) skips the practice straight to the 3, 2, 1. Settings > Beat practice: Off
+## always skips it (you still get the countdown and see your new BPM).
 const COUNTDOWN_SHAKE := 6.0  # configurable  (px the screen shakes on each number; 0 = none)
 const COUNTDOWN_RED := 0.6  # configurable  (how strong the red stress edges come in on each number; 0 = none)
 ## DEEP FOCUS: this many PERFECT moves in a row turns your flame blue. Anything less than PERFECT (or any
@@ -657,13 +699,14 @@ const RELIGHT_ZONE_MIN := 0.06  # configurable
 const RELIGHT_MISS_PENALTY := 1  # configurable  (a mistimed strike pushes the bar back up this many steps)
 
 # --- stages & lives
-## Every stage gives you LIVES lives. Break 3-5 walls (WALLS_PER_STAGE_MIN..MAX) to clear it and go up a stage.
+## Every stage gives you LIVES lives. Break its walls to clear it and go up a stage: WALLS_PER_STAGE on the first
+## stages, one more every WALLS_PER_STAGE_EVERY stages (stages 1-5 = 3 walls, 6-10 = 4, 11-15 = 5 ...).
 ## Losing a life (lighter not relit in time) restarts the stage from its first wall - your stage
 ## is a checkpoint. Lose all your lives before clearing it and you drop down a stage.
 const LIVES := 3  # configurable
 const MAX_LIVES := 5.0  # configurable  (hard cap: you can NEVER have more lives than this, Pack of Fluid included)
-const WALLS_PER_STAGE_MIN := 3  # configurable  (each stage needs a random MIN..MAX walls, rolled when it starts)
-const WALLS_PER_STAGE_MAX := 5  # configurable
+const WALLS_PER_STAGE := 3  # configurable  (walls stage 1 needs)
+const WALLS_PER_STAGE_EVERY := 5  # configurable  (one more wall every this many stages; 0 = never more)
 const LOSS_RESTARTS_STAGE := true  # configurable  (false = losing a life keeps the walls you already broke this stage)
 ## Each stage up, things get harder - and pay more:
 const STAGE_FUEL_STEP := 0.07  # configurable  (light fades 7% faster each stage; tap rings close 7% faster too)
@@ -683,6 +726,13 @@ const WALL_BREAK_BONUS := 0  # configurable  (extra coins when the wall comes do
 ## watch the rings and tap whichever closes first. (Tap actions are timed by their circles, not ACTION_TIME.)
 const TAP_COUNT_MIN := 3  # configurable  (circles: random MIN..MAX)
 const TAP_COUNT_MAX := 6  # configurable
+## MOVE SIZE: circles and lines start big and forgiving, and shrink the deeper a run goes. Every circle's
+## size (and how close a click must be) and every line's wiggle room (the *_TOLERANCE values, corner rings,
+## start dots) is x this. Stage 1 = MOVE_SIZE_START; each stage takes MOVE_SIZE_STEP off (smoothly, wall by
+## wall) until MOVE_SIZE_MIN. With 1.35 / 0.05 / 0.75: x1.35 at stage 1, normal (x1) at stage 8, smallest at 13.
+const MOVE_SIZE_START := 1.35  # configurable  (practice and the tour always use this)
+const MOVE_SIZE_STEP := 0.05  # configurable  (taken off for every stage you go down)
+const MOVE_SIZE_MIN := 0.75  # configurable  (the smallest / strictest it gets)
 const TAP_RADIUS := 38.0  # configurable  (px, size of a circle)
 const TAP_APPROACH_MIN := 0.65  # configurable  (seconds a FAST ring takes to close)
 const TAP_APPROACH_MAX := 1.8  # configurable  (seconds a SLOW ring takes to close)
@@ -774,6 +824,18 @@ const TRACK_CLICKS_MIN := 8  # configurable
 const TRACK_CLICKS_MAX := 14  # configurable
 const TRACK_SPEED := 170.0  # configurable  (about how many px per second it drifts at stage 1; faster later)
 const TRACK_MISS_WICK_COST := 0.05  # configurable  (wick a click that misses it burns; small, it's hard to follow)
+
+# --- nail (Nail & Hammer: a grid of nails pops up all over the wall with "!" flashing on both sides of the
+## screen. Click every nail - any order - as fast as you can. The clock starts at your first hit; run out of time
+## and the nails pop back up (start again). A click that hits no nail is a stray: no PERFECT, some wick.)
+const NAIL_LAYOUTS := [Vector2i(3, 3), Vector2i(5, 3), Vector2i(7, 1)]  # configurable  (columns x rows: 3x3, 5x3 or a line of 7, one at random)
+const NAIL_RADIUS := 30.0  # configurable  (px, how close a click must be to a nail head (x the stage's move size))
+const NAIL_TIME_BASE := 0.8  # configurable  (seconds you get on top of the time per nail)
+const NAIL_TIME_PER_NAIL := 0.5  # configurable  (seconds per nail after the first, at stage 1; less on later stages, like the tap rings)
+const NAIL_TIME_PER_NAIL_MIN := 0.34  # configurable  (never less than this per nail)
+const NAIL_WICK_SPARE := 2.5  # configurable  (the wick always lasts the nails' clock + this many seconds: time to reach the first one, one restart)
+const NAIL_PERFECT_PART := 0.65  # configurable  (all of them within this part of the time, no stray clicks = PERFECT)
+const NAIL_ALERT_SIZE := 72  # configurable  (font px of the "!" on both sides of the screen; 0 = none)
 
 # --- drill
 const DRILL_CLICKS_MIN := 8  # configurable  (clicks needed: random MIN..MAX)

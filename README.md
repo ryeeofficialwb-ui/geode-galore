@@ -30,7 +30,7 @@ Short on coins? Click **< Mine** on the left to go to the mining wall and earn c
 (you need a **ticket** for one of the **caves**: Shop > Caves).
 
 **Screens**
-- **Top bar:** coins, your mine **tickets**, **Shop** (four tabs: **Rock Shop**, **Upgrades**, **Caves** and **Stock Prices**), the **Backpack** icon (your ores & gems, sell them here; the number next to it is how many you carry), the **Settings** gear (sound on/off, music volume, sound-effect volume, hint text, tips, reset), **?** (a short tour).
+- **Top bar:** coins, your mine **tickets**, **Shop** (four tabs: **Rock Shop**, **Upgrades**, **Caves** and **Stock Prices**), the **Backpack** icon (your ores & gems, sell them here; the number next to it is how many you carry), the **Settings** gear (sound on/off, music volume, sound-effect volume, hint text, tips, beat practice on/off, reset), **?** (a short tour).
 - **Practice** (under the Mine arrow): pick any activity - every move, lighter flicking or relighting - and play it as long as you like. No lighter to look after, no ticket, no lives, and **no coins**. Back puts the mine back exactly as you left it.
 - **Tips as you play:** no long tutorial up front. The first time something happens (your first rock, first sale, running out of rocks, your first trip down the mine, each move style the first time it shows up, your light getting low, the lighter going out, your first lost life) a short tip pops up **once**, with a spotlight on what it's about; the mine pauses while it's up. **No more tips** (or Settings > Tips) turns them off. **?** plays a short 6-step tour (you can try the lighter and a move with no timer). Old saves that finished the old tutorial only get tips for the new moves.
 - **Main screen:** the rock in the middle, **Your Rocks** on the right, **< Mine** arrow on the left.
@@ -63,11 +63,13 @@ Short on coins? Click **< Mine** on the left to go to the mining wall and earn c
   1-100 coins, 11 skip a stage, 12 the run is over; while you hold it, a dead light costs a life with no relighting), Coin of Deceit (double or lose this run's
   coins at a break), Ram (R: through 3 walls, 2 uses), Golden Apple (x2.5 coins), Standard Gloves (20% more light),
   Art of Peace (no shaking / flashing / red edges, x2 coins), Philosopher's Stone (Pebbles = your combo, up to 10, per move).
-  Sapphire's Clover (every stage cleared doubles all rewards and makes the mine 50% harder, forever), Minecart / Backpack
+  Sapphires Clover (every stage cleared doubles all rewards and makes the mine 50% harder, forever), Minecart / Backpack
   (lose the run, keep 25% / 30% of its loot), Great Ham (H: +2 lives, used up), Fireflies (1 in 7 moves done for you),
   Miner's Hat (a light round your cursor), Mandrake (screams when it gets darker, +20% coins and rocks), Spike Boots
   (every move counts twice), Rapid Fire (the mine runs 3x faster, x3 rewards), Pet Rock (at a break, 1000 coins'
-  worth of rocks = +1 life, 3 times).
+  worth of rocks = +1 life, 3 times), **Blackboard** (every move becomes the alphabet: trace the letters to crack them
+  into the wall, lifting the mouse whenever you like; 1 letter on stages 1-3, then 2, 3, at most 4, against a clock
+  that gets faster every stage and resets a bit more forgiving each time a letter is added: `BLACKBOARD_*`).
   The **Artifact Book** (the book in Select Mine) lists them all. Artifact **order matters** (Copy / Catto): move them
   with < > at a break. All in `ITEMS` and the settings under it in `config.gd`; icons are in `assets/ui/items/`; the
   Torch shows your torch art (`assets/torch/`, from `art_source/torch/`).
@@ -106,8 +108,8 @@ Short on coins? Click **< Mine** on the left to go to the mining wall and earn c
 - **Caves** (third tab of the Shop): six caves, each with its own wall, its own **tickets** and its own **stage**
   checkpoint (`CAVES` in `config.gd`). One ticket = one **trip** (a run) down that cave, which lasts until you run out
   of lives or cash out (going Back cashes out). Claim a **free Old Mine ticket every
-  10 minutes**, or buy tickets (Old Mine 100 coins ... Crystal Grotto 6500). Deeper caves pay more coins but your
-  light fades faster. **Clearing a stage** can find a **pile of rocks** (`stone_chance`, 1-5% at stage 1, more each
+  10 minutes**, or buy tickets (Old Mine 100 coins ... Crystal Grotto 6500). Deeper caves pay more coins; only the
+  Crystal Grotto's light fades faster (3%, `fuel`). Select Mine shows each cave's stage, its lowest heart rate (BPM) and its walls. **Clearing a stage** can find a **pile of rocks** (`stone_chance`, 1-5% at stage 1, more each
   stage): 5 rocks (+1 every 3 stages), each 50% to make it, at most 3 kept (+1 every 4 stages). Rocks come in
   **5 tiers** by price; each cave has its own (`tiers`: Old Mine only tier 1 ... Crystal Grotto tiers 4-5) and later
   stages lean to its higher tiers (`ROCK_TIERS`, `STAGE_STONE_*`, `STAGE_ROCK_*`, `STAGE_TIER_SHIFT`).
@@ -149,18 +151,23 @@ Short on coins? Click **< Mine** on the left to go to the mining wall and earn c
   **heartbeat**; flick when it reaches the **gold zone** near the top ("FLICK!"), once a beat. Too soon (spamming, or a
   second flick in the same beat) or too late fails: no light, a red flash, and it **burns some wick**
   (`FLICK_FAIL_WICK_COST`). The beat is your miner's **heart rate**, shown over the bar (a pixel heart and the BPM; the
-  bar jolts on every beat). It never changes in the middle of a wall - only when a wall breaks: it starts at a resting
-  heart (60 BPM, `HEART_REST_BPM`), each stage adds 10 (`HEART_STAGE_BPM`), and how you played the last wall moves it
-  10 either way (`HEART_PERFORM_BPM`: mostly PERFECT = faster, sloppy and failing = calmer), never above a heart
-  under stress (180 BPM, `HEART_STRESS_BPM`). It only ever moves in steps of 10: 60, 70, 80 ... (`HEART_BPM_STEP`). A slower heart gets a bigger gold zone (`FLICK_ZONE_CALM` ..
+  bar jolts on every beat). It reacts to how you play: every **mistake** (a miss, a stray click, a failed move, a
+  mistimed flick, a flood) makes it jump **+1** (`HEART_MISTAKE_BPM`), plus up to **+2 more** the lower your wick is
+  (`HEART_PANIC_BPM`: about to lose = your heart spikes), and every **2 good flicks** calm it **-1**
+  (`HEART_CALM_FLICKS`, `HEART_CALM_BPM`). The BPM number flashes red when it jumps and blue when it calms. It never
+  drops below the stage's floor: the cave's `bpm` on stage 1 (Old Mine 60, Shale Hollow 65, Crimson Deep 70, Blackrock
+  Tunnels 75, Magma Veins 80, Crystal Grotto 85), +5 every stage after that (`HEART_STAGE_BPM`), and never goes over a
+  heart under stress (180 BPM, `HEART_STRESS_BPM`). It carries over between walls and stages (a new stage just lifts it
+  to the new floor); a new run starts on the floor. A slower heart gets a bigger gold zone (`FLICK_ZONE_CALM` ..
   `FLICK_ZONE_STRESS`). A slow beat gives fewer flicks, so each good flick gives more light: timed perfectly,
   flicking brings the light back 1.8x as fast as it fades at any tempo (`FLICK_GAIN`), and never less than 3-5% a flick.
   While the flame is at full blaze the bar shows FULL (flicking floods it).
 
   **Feel the beat:** after every wall (when you leave the break) the next wall drops in and the view zooms in on the
-  FLICK bar for 5 seconds (`BEAT_PRACTICE_TIME`) so you can practise the new heartbeat - flicks don't count for
-  anything; the whole game goes dark except the bar (`BEAT_PRACTICE_DIM`). The last 3 seconds count down 3, 2, 1
-  (`BEAT_COUNTDOWN`): each one shakes the screen a bit and the red stress edges throb in; after 1 the moves start.
+  FLICK bar for 3 seconds (`BEAT_PRACTICE_TIME`) so you can practice your heartbeat - flicks don't count for
+  anything; the whole game goes dark except the bar (`BEAT_PRACTICE_DIM`). The last second is a fast 3, 2, 1
+  (`BEAT_COUNTDOWN`, a third of a second each: `BEAT_COUNTDOWN_STEP`): each one shakes the screen a bit and the red
+  stress edges throb in; after 1 the moves start.
 
   **Deep Focus:** 5 PERFECT moves in a row (`DEEP_FOCUS_PERFECTS`) turns your flame **blue**. It stays blue until
   you break the streak (a move that isn't PERFECT, a miss, a mistimed flick, a flood, the light dying).
@@ -180,14 +187,16 @@ Short on coins? Click **< Mine** on the left to go to the mining wall and earn c
   | **SWIRL!** (stage 5+) | trace the spiral from the glowing dot on the outside into the middle (no cutting across). The spiral is drawn as one bright line with a glint running along it, and bright checkpoints |
   | **SLASH IT ALL!** (stage 6+) | one huge, very fast swipe right across the wall, edge to edge |
   | **SPIN!** (stage 6+) | hold the button and spin your cursor round the circle, fast (like an osu! spinner); finish within the time shown. The circle you spun breaks out of the wall and falls away, leaving a hole (`SPIN_CHUNK_SIZE`) |
+  | **NAIL IT!** (stage 4+) | Nail & Hammer: nails pop up all over the wall - a 3x3 grid, a 5x3 grid or a line of 7 - with **!** flashing on both sides of the screen. Click every nail, any order, as fast as you can: the clock starts at your first hit, and if it runs out the nails pop back up. A click on no nail is a stray (`NAIL_*`) |
+  | **WRITE IT!** (Blackboard only) | trace the letters on the wall (any stroke, any order, lift the mouse when you like); off the letter while pressing is a stray. Your wick is the clock |
 
   **The wall breaks up as you go:** every finished move runs cracks in from the wall's edges - more, longer and thicker
   the closer it is to coming down - and past the halfway mark chunks start falling out of it (`WALL_DAMAGE_CRACKS`,
   `WALL_CHUNKS_FROM`).
 
-  **Scaling difficulty:** the further you get, the more actions each wall takes (+1 every 2 stages, up to +6) and
-  the more move styles show up: stages 1-5 add one each (Slash, Zigzag, Drill, Pry, Swirl), stage 6 brings in
-  the rest (Track, Slash It All, Spin and Tap). The stage numbers are `ACTION_UNLOCK`. Pricier caves have a **head start**
+  **Scaling difficulty:** the further you get, the more actions each wall can take: 3-5 on stages 1-3, 3-6 on 4-6,
+  3-7 on 7-9 and so on with no cap (`WALL_ACTIONS_MIN` / `_MAX` / `_MAX_EVERY`), and the more move styles show up:
+  stages 1-5 add one each (Slash, Zigzag, Drill, Pry + Nail It, Swirl), stage 6 brings in the rest (Track, Slash It All, Spin and Tap). The stage numbers are `ACTION_UNLOCK`. Pricier caves have a **head start**
   (Shale Hollow +1 ... Crystal Grotto +5), so you meet every move sooner there - the Crystal Grotto has them all
   from stage 1. Finishing a move makes the WICK gauge flash REFILLED!, and while it burns it says "Finish the move
   to refill it" (Settings > Hint text). In the mine you only see the cave: the top menu slides away, and nothing you have to hit ever
@@ -212,7 +221,7 @@ Short on coins? Click **< Mine** on the left to go to the mining wall and earn c
 
   **Stages:** each stage gives you **3 lives** (shown as lighters, top left; a half-dark lighter = half a life).
   Not relighting in time costs a whole life and restarts the stage; flooding costs half a life and doesn't. Break
-  **3-5 walls** (rolled for each stage, shown at the top: `WALLS_PER_STAGE_MIN` / `_MAX`) to clear the stage and go up. After every wall (and every stage cleared) you get a **break**: nothing
+  **3 walls** on stages 1-5, 4 on 6-10, 5 on 11-15 and so on (shown at the top: `WALLS_PER_STAGE` / `_EVERY`) to clear the stage and go up. After every wall (and every stage cleared) you get a **break**: nothing
   burns down until you click or press SPACE for the next wall (`REST_BETWEEN_WALLS`). Your stage is a checkpoint, but lose all 3 lives before clearing it and you
   **drop down a stage**. Every stage up pays **+25% coins**
   from the wall, but the light fades 7% faster (and tap rings close faster), and relighting takes one more strike every 2 stages.

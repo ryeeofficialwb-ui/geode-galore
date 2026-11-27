@@ -98,6 +98,8 @@ var book_tab := "artifacts"
 var hints_btn: Button
 var tips_btn: Button                # Settings > Tips (the pop-up tips as you play)
 var circles_btn: Button             # Settings > Coloured circles (tap circles each in their own colour)
+var beat_btn: Button                # Settings > Beat practice (off: skip it after every wall)
+var beat_okay_btn: Button           # on the wall: skips the beat practice
 var _hints: Array[Control] = []     # helper texts that Settings > Hint text hides
 var bag_list: VBoxContainer
 var crush_btn: Button               # Crush All: every rock at once, supernova style
@@ -208,8 +210,8 @@ func _process(delta: float) -> void:
 	_layout_screens()
 	version_label.visible = not on_wall
 	version_label.position = Vector2(14, size.y - version_label.size.y - 8)
-	wall_view.active = on_wall and not (shop_overlay.visible or backpack_overlay.visible or settings_overlay.visible or practice_overlay.visible or mine_overlay.visible or book_overlay.visible or reset_confirm.visible or leave_confirm.visible) 			and (not tutorial.visible or tutorial.practicing())  # the tutorial freezes the wall, except while you try an action
-	wall_view.active = wall_view.active and (Game.trip_active or tutorial.practicing() or wall_view.free_practice)  # no ticket, no mining (Practice is free)
+	wall_view.active = on_wall and not (shop_overlay.visible or backpack_overlay.visible or settings_overlay.visible or practice_overlay.visible or mine_overlay.visible or book_overlay.visible or reset_confirm.visible or leave_confirm.visible) 			and (not tutorial.visible or tutorial.in_practice())  # the tutorial freezes the wall, except while you try an action
+	wall_view.active = wall_view.active and (Game.trip_active or tutorial.in_practice() or wall_view.free_practice)  # no ticket, no mining (Practice is free)
 	if shop_overlay.visible and shop_tab == "stocks":
 		stock_timer.text = "Prices change in %s  (PH %s)" % [_fmt_time(Game.restock_left()), Game.market_clock()]
 	if shop_overlay.visible:
@@ -233,7 +235,7 @@ func _process(delta: float) -> void:
 			tutorial.tip("beat", true)
 	if on_wall and wall_view.peaceful():
 		_shake = 0.0  # Art of Peace: the screen never shakes
-	# practising the beat: the zoomed FLICK bar is all you see - the wall's buttons and floating texts fade
+	# practicing the beat: the zoomed FLICK bar is all you see - the wall's buttons and floating texts fade
 	# away too (and can't be clicked while they're gone), then come back when it zooms out
 	var zoom := wall_view.zoom_amount()
 	var shown := 1.0 - Config.BEAT_PRACTICE_DIM * zoom
@@ -241,6 +243,12 @@ func _process(delta: float) -> void:
 		(c as CanvasItem).modulate = Color(1, 1, 1, shown)
 	for b in [back_btn, wall_book_btn, dynamite_btn, ram_btn, ham_btn]:
 		(b as Control).mouse_filter = Control.MOUSE_FILTER_IGNORE if zoom > 0.0 else Control.MOUSE_FILTER_STOP
+	# feeling the beat: "Okay" skips straight to the 3, 2, 1
+	beat_okay_btn.visible = on_wall and wall_view.beat_skippable()
+	if beat_okay_btn.visible:
+		beat_okay_btn.size = beat_okay_btn.get_combined_minimum_size()
+		beat_okay_btn.position = (wall_view.position + wall_view.beat_okay_pos() - beat_okay_btn.size * 0.5).round()
+		beat_okay_btn.modulate.a = zoom
 	if on_wall and wall_view.active and wall_view.practice == "" and not wall_view.free_practice:
 		Game.note_time(delta / maxf(Engine.time_scale, 0.01))  # real seconds, even with Rapid Fire
 	# Rapid Fire: everything in the mine runs faster (only while you're mining, not on breaks or in menus)
@@ -338,7 +346,7 @@ func _build() -> void:
 	practice_btn = _button("Practice", _open_practice)
 	practice_btn.custom_minimum_size = Vector2(72, 52)
 	practice_btn.add_theme_font_size_override("font_size", Config.font_px(16))
-	practice_btn.tooltip_text = "Practise any activity: no lighter to look after, no ticket - and no coins"
+	practice_btn.tooltip_text = "Practice any activity: no lighter to look after, no ticket - and no coins"
 	left_col.add_child(practice_btn)
 
 	var center := VBoxContainer.new()
@@ -388,6 +396,11 @@ func _build() -> void:
 	wall_screen.add_child(wall_view)
 	back_btn = _arrow_button(">", "Back", _leave_mine)
 	wall_screen.add_child(back_btn)
+	beat_okay_btn = _button("Okay", func(): wall_view.skip_beat_practice())
+	beat_okay_btn.custom_minimum_size = Vector2(140, 44)
+	beat_okay_btn.tooltip_text = "Skip the practice (ENTER). Settings > Beat practice can always skip it."
+	beat_okay_btn.visible = false
+	wall_screen.add_child(beat_okay_btn)
 	_build_run_ui()
 	add_child(menu_bar)  # above the screens
 
@@ -658,7 +671,8 @@ func _fill_caves(list: VBoxContainer) -> void:
 		if int(cv.get("head_start", 0)) > 0:
 			perks += "   -   harder walls (+%d)" % int(cv.get("head_start", 0))
 		info.add_child(_label(perks, 15, Config.TEXT_COLOR))
-		info.add_child(_label("Stage %d   (best %d)" % [Game.cave_stage(id), Game.cave_best(id)], 14, Config.MUTED_TEXT))
+		var cs := Game.cave_stage(id)
+		info.add_child(_label("Stage %d   (best %d)   -   heart %d+ BPM   -   %d walls" % [cs, Game.cave_best(id), roundi(Game.stage_bpm(cs, id)), Game.base_walls(cs)], 14, Config.MUTED_TEXT))
 		var price := Game.ticket_price(id)
 		var buy := _button("Buy ticket  %d" % price, _buy_ticket.bind(id))
 		buy.custom_minimum_size = Vector2(190, 48)
@@ -1171,6 +1185,12 @@ func _build_settings() -> void:
 	circles_btn.custom_minimum_size.y = 44
 	circles_btn.tooltip_text = "Tap circles each get their own colour (in the order they close), so they're easier to tell apart"
 	v.add_child(circles_btn)
+	beat_btn = _button("", func():
+		Game.set_beat_practice(not Game.beat_practice)
+		Sfx.play("click"))
+	beat_btn.custom_minimum_size.y = 44
+	beat_btn.tooltip_text = "After every wall the view zooms in on the FLICK bar so you can feel your heartbeat. Off: straight to the 3, 2, 1."
+	v.add_child(beat_btn)
 	sound_btn = _button("", _toggle_sound)
 	sound_btn.custom_minimum_size.y = 44
 	v.add_child(sound_btn)
@@ -1193,7 +1213,7 @@ Music: Gambler Symphony, MeltdownTheme, Shop Theme (Thameuszin)" % [
 
 ## Practice (the button under the Mine): pick any activity and play it as long as you like. No lighter to
 ## look after, no ticket needed, nothing lost - and no coins.
-const PRACTICE_EXTRA := {  # the lighter itself can be practised too
+const PRACTICE_EXTRA := {  # the lighter itself can be practiced too
 	"flick": ["LIGHTER FLICKS", "Keep the flame alive: flick SPACE in the gold zone, never when it's full"],
 	"relight": ["RELIGHTING", "Strike SPACE while the marker is in the gold zone"],
 }
@@ -1203,10 +1223,11 @@ func _build_practice() -> void:
 	var o := _make_overlay("Practice", _close_overlays)
 	practice_overlay = o[0]
 	var v: VBoxContainer = o[1]
-	var info := _label("Pick anything to practise. No lighter to worry about, no ticket, no lives - and no coins.", 16, Config.MUTED_TEXT)
+	var info := _label("Pick anything to practice. No lighter to worry about, no ticket, no lives - and no coins.", 16, Config.MUTED_TEXT)
 	info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	info.custom_minimum_size.x = 800
 	v.add_child(info)
+	_practice_bpm_row(v)
 	var grid := GridContainer.new()
 	grid.columns = 3
 	grid.add_theme_constant_override("h_separation", 10)
@@ -1241,6 +1262,35 @@ func _build_practice() -> void:
 		d.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		inner.add_child(d)
 		grid.add_child(b)
+
+
+## Practice: pick the heart rate the FLICK bar beats at (60 = resting ... 180 = the fastest it gets in the mine).
+func _practice_bpm_row(parent: Control) -> void:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	parent.add_child(row)
+	var l := _label("Lighter heartbeat (FLICK bar)", 17, Config.TEXT_COLOR)
+	row.add_child(l)
+	var sl := HSlider.new()
+	sl.min_value = Config.HEART_REST_BPM
+	sl.max_value = Config.HEART_STRESS_BPM
+	sl.step = Config.PRACTICE_BPM_STEP if Config.PRACTICE_BPM_STEP > 0.0 else 1.0
+	sl.scrollable = false
+	sl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	sl.custom_minimum_size = Vector2(300, 28)
+	row.add_child(sl)
+	var val := _label("", 17, Config.ACCENT)
+	val.custom_minimum_size.x = 150
+	row.add_child(val)
+	var show := func(x: float):
+		var what := "resting" if x <= Config.HEART_REST_BPM else ("max" if x >= Config.HEART_STRESS_BPM else "")
+		val.text = "%d BPM%s" % [roundi(x), "  (%s)" % what if what != "" else ""]
+	sl.value_changed.connect(func(x: float):
+		show.call(x)
+		Game.set_practice_bpm(x))
+	sl.set_value_no_signal(Game.practice_bpm)
+	show.call(Game.practice_bpm)
 
 
 func _open_practice() -> void:
@@ -2808,6 +2858,8 @@ func _apply_hints() -> void:
 		hints_btn.text = "Hint text: On  (click to hide)" if Game.show_hints else "Hint text: Off  (click to show)"
 	if tips_btn:
 		tips_btn.text = "Tips: On  (click to turn off)" if Game.show_tips else "Tips: Off  (click to turn on)"
+	if beat_btn:
+		beat_btn.text = "Beat practice: On  (click to skip it)" if Game.beat_practice else "Beat practice: Off  (click to turn on)"
 	if circles_btn:
 		circles_btn.text = "Coloured circles: On  (click to turn off)" if Game.color_circles else "Coloured circles: Off  (click to turn on)"
 

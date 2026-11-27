@@ -10,6 +10,8 @@ extends Control
 ##   swirl  - trace a spiral from the glowing dot on the outside into the middle
 ##   bigslash - one huge, very fast swipe right across the wall
 ##   spin   - hold the button and spin your cursor round the circle, fast (like an osu! spinner)
+##   nail   - Nail & Hammer: a grid of nails all over the wall ("!" on both sides) - hammer them all, fast
+##   letters - (Blackboard artifact only) crack letters of the alphabet into the wall, lifting the pen when you like
 ## The further you get (stage + the cave's head start) the more actions a wall takes and the more move
 ## styles show up (Config.ACTION_UNLOCK).
 ## It's dark: your LIGHTER follows the mouse and lights the wall around it. Its flame is the timer
@@ -24,7 +26,7 @@ signal action_done(perfect: bool, at: Vector2, combo: int, multiplier: float)
 signal missed(reason: String, at: Vector2)
 signal failed(reason: String, lost_combo: int, at: Vector2)   # timer ran out / every circle missed
 signal wall_down(at: Vector2)
-signal practiced(kind: String)  # an action was finished in practice mode (tutorial)
+signal practice_done(kind: String)  # an action was finished in practice mode (tutorial)
 signal lighter_out(at: Vector2)
 signal relit(at: Vector2)
 signal life_lost(stage_down: bool, at: Vector2)
@@ -54,6 +56,8 @@ const KIND_INFO := {            # title, hint
 	"swirl": ["SWIRL!", "Trace the spiral from the glowing dot into the middle"],
 	"bigslash": ["SLASH IT ALL!", "One huge, fast swipe right across the wall"],
 	"spin": ["SPIN!", "Hold the button and spin round and round, fast!"],
+	"nail": ["NAIL IT!", "Hammer every nail - as fast as you can!"],
+	"letters": ["WRITE IT!", "Crack the letters into the wall - lift your pen whenever you like"],
 }
 
 var tile_tex: Texture2D
@@ -110,13 +114,12 @@ var _fm_ok := 0.0               # flashes: a good flick / a mistimed one
 var _fm_bad := 0.0
 var _beat_used := false         # already flicked well on this heartbeat: another flick is "too soon"
 var _beat_kick := 0.0           # the FLICK bar's jolt on each heartbeat (decays)
-var bpm := 0.0                  # your heart rate: the FLICK bar fills once per beat. Only changes when a wall breaks
-var _wall_moves := 0            # how you played this wall (sets the next wall's heart rate)
-var _wall_perfects := 0
-var _wall_fails := 0
-var _beat_t := 0.0              # > 0: zoomed in on the FLICK bar after a wall, practising the new beat (the last
-								#      BEAT_COUNTDOWN seconds count down 3, 2, 1 with a flash each)
-var _beat_flicking := true      # false: Torch / Cat's Eyes - no bar to practise, just the countdown
+var bpm := 0.0                  # your heart rate: the FLICK bar fills once per beat. Mistakes raise it, good flicks calm it (0 = the stage's floor)
+var _calm_flicks := 0           # good flicks towards the next HEART_CALM_BPM off your heart rate
+var _bpm_flash := 0.0           # the BPM number flashes: > 0 red (your heart jumped), < 0 calm (it slowed)
+var _beat_t := 0.0              # > 0: zoomed in on the FLICK bar after a wall, practicing the new beat (the last
+								#      _count_len() seconds count down 3, 2, 1 with a flash each)
+var _beat_flicking := true      # false: Torch / Cat's Eyes - no bar to practice, just the countdown
 var _count_flash := 0.0         # the screen flash on each number of the countdown
 var _zoom := 0.0                # 0..1: how far the view is zoomed in on the FLICK bar
 var _beat_hits := 0             # practice flicks on the beat / all practice flicks
@@ -189,6 +192,27 @@ var _track_f := Vector2.ONE
 var _track_ph := Vector2.ZERO
 var _track_time := 0.0
 var _jolt := 0.0
+# nail (Nail & Hammer)
+var _nails: Array[Dictionary] = []     # {p, hit}
+var _nail_r := 30.0                     # hit radius of a nail head
+var _nail_t := 0.0                      # seconds since the first hit
+var _nail_time := 3.0                   # seconds you get for all of them
+var _nail_started := false              # the clock starts at your first hit
+var _nail_pop := 0.0                    # the "!" pop in when the nails show up (decays)
+# letters (Blackboard)
+var _bb_text := ""                      # the letters on the wall
+var _bb_pts := PackedVector2Array()     # points along every stroke of every letter
+var _bb_done := PackedByteArray()       # ... 1 = traced (cracked in)
+var _bb_of := PackedInt32Array()        # ... which letter it belongs to
+var _bb_letter_done: Array[bool] = []
+var _bb_rects: Array[Rect2] = []        # each letter's box
+var _bb_area := Rect2()                # the space the letters take up on the wall
+var _bb_segs: Array[Dictionary] = []   # every straight bit of every letter: {a, b, li} (they crack in when a letter's done)
+var _bb_time := 5.0                     # seconds for all the letters (the wick burns down over this)
+var _bb_t := 0.0                        # seconds since they showed up
+var _bb_pen := false                    # pressing and writing
+var _bb_last := Vector2.ZERO
+var _bb_practice_round := 0             # practice: 1, 2, 3, 4 letters, round and round
 var _wick_flash := 0.0                  # the wick gauge glows when finishing a move refills it
 # looks
 var _marks: Array[Dictionary] = []     # what earlier actions left on this wall
@@ -340,11 +364,7 @@ func _show_wall() -> void:
 
 ## The wall's moves start.
 func _start_wall() -> void:
-	_wall_moves = 0
-	_wall_perfects = 0
-	_wall_fails = 0
-	var extra := mini(floori((Game.skill_stage() - 1) * Config.WALL_ACTIONS_PER_STAGE), Config.WALL_ACTIONS_EXTRA_MAX)
-	actions_total = randi_range(Config.WALL_ACTIONS_MIN, Config.WALL_ACTIONS_MAX) + maxi(extra, 0)
+	actions_total = randi_range(Config.WALL_ACTIONS_MIN, wall_actions_max())
 	if _run_on() and Game.half_walls():  # Dice of Dwarves 3-4: half the moves this stage
 		actions_total = maxi(1, ceili(actions_total / 2.0))
 	actions_left = actions_total
@@ -354,7 +374,15 @@ func _start_wall() -> void:
 	new_action()
 
 
-## Tutorial: keep asking for this one action (no timer). "relight" = practise relighting.
+## The most actions a wall can take here: WALL_ACTIONS_MAX, +1 every WALL_ACTIONS_MAX_EVERY stages (stage +
+## the cave's head start), with no cap: 1-3 = 3-5, 4-6 = 3-6, 7-9 = 3-7 ...
+func wall_actions_max(skill := -1) -> int:
+	var s := Game.skill_stage() if skill < 1 else skill
+	var more := (s - 1) / Config.WALL_ACTIONS_MAX_EVERY if Config.WALL_ACTIONS_MAX_EVERY > 0 else 0
+	return maxi(Config.WALL_ACTIONS_MAX + more, Config.WALL_ACTIONS_MIN)
+
+
+## Tutorial: keep asking for this one action (no timer). "relight" = practice relighting.
 ## "" = back to normal.
 func set_practice(k: String) -> void:
 	practice = k
@@ -441,10 +469,9 @@ func reset_run() -> void:
 	_hype_t = 0.0
 	_hype_pending = false
 	perfect_streak = 0
-	_wall_moves = 0
-	_wall_perfects = 0
-	_wall_fails = 0
-	bpm = 0.0  # a new run starts from a calm heart (set by the first wall)
+	bpm = 0.0  # a new run starts from a calm heart: the stage's floor
+	_calm_flicks = 0
+	_bpm_flash = 0.0
 	_falling = false
 	light_state = "off"
 	_lid_target = 0.0
@@ -490,10 +517,10 @@ func new_action(force := "") -> void:
 			_set_path(_slash_points(area))
 			_build_crack(Config.SLASH_CRACK_WIDTH)
 		"drill":
-			_spot = _free_point(area.grow(-60), Config.DRILL_RADIUS)
+			_spot = _free_point(area.grow(-60), (Config.DRILL_RADIUS * move_size()))
 			_clicks_need = randi_range(Config.DRILL_CLICKS_MIN, Config.DRILL_CLICKS_MAX)
 		"pry":
-			_spot = _free_point(area.grow(-60), Config.PRY_RADIUS)
+			_spot = _free_point(area.grow(-60), (Config.PRY_RADIUS * move_size()))
 			_setup_pry()
 		"swirl":
 			_set_path(_swirl_points(area))
@@ -507,6 +534,10 @@ func new_action(force := "") -> void:
 			_spot = _spin_c
 		"track":
 			_setup_track(area)
+		"nail":
+			_setup_nails(area)
+		"letters":
+			_setup_letters(area)
 	if kind != "":
 		action_started.emit(kind)
 		_fireflies()
@@ -575,6 +606,8 @@ func _pry_angle(f: float) -> float:
 
 
 func _pick_kind() -> String:
+	if _run_on() and Game.has_item("blackboard"):
+		return "letters"  # the Blackboard: only the alphabet
 	var pool := {}
 	var skill := Game.skill_stage()
 	# Diamond Pick / Familiar Circle: only their moves (unlocked or not); both = only the moves they share
@@ -624,6 +657,10 @@ func _reset_input() -> void:
 	_sound_s = 0.0
 	_spin_reset()
 	_track_time = 0.0
+	_nails.clear()
+	_nail_started = false
+	_nail_t = 0.0
+	_bb_pen = false
 
 
 func _spin_reset() -> void:
@@ -649,17 +686,21 @@ func _rand_in(r: Rect2) -> Vector2:
 ## is not the order they CLOSE in. Hit times are spaced out; spawn = hit time - ring speed.
 func _setup_tap(area: Rect2) -> void:
 	var n := randi_range(Config.TAP_COUNT_MIN, Config.TAP_COUNT_MAX)
-	var inner := area.grow(-Config.TAP_RADIUS)
+	var inner := area.grow(-(Config.TAP_RADIUS * move_size()))
 	var speed := Game.stage_fuel_factor()  # rings close faster on higher stages
 	var hit_t := 0.0
 	var earliest := INF
 	var prev_spawn := -INF
 	for i in n:
-		var p := _free_point(inner, Config.TAP_RADIUS)
+		var p := _free_point(inner, (Config.TAP_RADIUS * move_size()))
+		var ok := false
 		for attempt in 60:  # keep circles apart, off the lighter, and their order lines apart
 			if _tap_spot_ok(p):
+				ok = true
 				break
-			p = _free_point(inner, Config.TAP_RADIUS)
+			p = _free_point(inner, (Config.TAP_RADIUS * move_size()))
+		if not ok and i >= 2 and _tap_touches(p):
+			break  # it would sit on another circle (big circles, a small wall): this move has one fewer
 		if i > 0:
 			hit_t += randf_range(Config.TAP_GAP_MIN, Config.TAP_GAP_MAX) * speed
 		var spawn := hit_t - randf_range(Config.TAP_APPROACH_MIN, Config.TAP_APPROACH_MAX) * speed
@@ -677,14 +718,23 @@ func _setup_tap(area: Rect2) -> void:
 	_tap_clock = 0.0
 
 
+## Would a tap circle at p overlap one already placed?
+func _tap_touches(p: Vector2) -> bool:
+	var rad := Config.TAP_RADIUS * move_size()
+	for tg in _targets:
+		if p.distance_to(tg.p) < rad * 2.2:
+			return true
+	return false
+
+
 ## Can the next tap circle go at p? Away from the lighter and the other circles, and the line from the
 ## circle before it must not run over another circle, cross an earlier line or fold back on itself.
 func _tap_spot_ok(p: Vector2) -> bool:
-	var rad := Config.TAP_RADIUS
+	var rad := (Config.TAP_RADIUS * move_size())
 	if _lighter_box().grow(rad).has_point(p) or flick_bar_rect().grow(rad + 40.0).has_point(p):
 		return false
-	for tg in _targets:
-		if p.distance_to(tg.p) < rad * Config.TAP_SPACING:
+	for tg in _targets:  # (spaced by the normal size: bigger early circles don't spread out and thin out)
+		if p.distance_to(tg.p) < maxf(Config.TAP_RADIUS * Config.TAP_SPACING, rad * 2.6):
 			return false
 	var i := _targets.size()
 	if i == 0:
@@ -915,7 +965,7 @@ func _bigslash_points(area: Rect2) -> PackedVector2Array:
 
 ## The moving drill drifts around in the bigger free part of the wall: right of the lighter, or above it.
 func _setup_track(area: Rect2) -> void:
-	var r := Config.TRACK_RADIUS
+	var r := (Config.TRACK_RADIUS * move_size())
 	var box := _lighter_box().grow(r)
 	var right := Rect2(Vector2(maxf(area.position.x, box.end.x), area.position.y), Vector2.ZERO)
 	right.end = area.end
@@ -1021,6 +1071,13 @@ func _action_center() -> Vector2:
 			return c / maxf(_targets.size(), 1)
 		"zigzag", "slash", "swirl", "bigslash":
 			return _point_at(_total * 0.5) if not _path.is_empty() else size * 0.5
+		"nail":
+			var c := Vector2.ZERO
+			for n in _nails:
+				c += n.p
+			return c / maxf(_nails.size(), 1)
+		"letters":
+			return _bb_area.get_center()
 	return _spot
 
 
@@ -1172,6 +1229,9 @@ func _gui_input(event: InputEvent) -> void:
 	elif event is InputEventMouseMotion and _spinning:
 		_spin_move(event.position)
 		accept_event()
+	elif event is InputEventMouseMotion and _bb_pen:
+		_bb_drag(event.position)
+		accept_event()
 
 
 func press(p: Vector2) -> void:
@@ -1181,7 +1241,7 @@ func press(p: Vector2) -> void:
 		"tap":
 			_tap(p)
 		"zigzag", "slash", "swirl", "bigslash":
-			if p.distance_to(_path[0]) > Config.SLICE_START_RADIUS:
+			if p.distance_to(_path[0]) > (Config.SLICE_START_RADIUS * move_size()):
 				missed.emit("Start at the glowing dot!", p)
 				return
 			_tracing = true
@@ -1195,13 +1255,22 @@ func press(p: Vector2) -> void:
 			_drill(p)
 		"track":
 			_track_click(p)
+		"nail":
+			_nail_click(p)
+		"letters":
+			if _bb_near(p) > (Config.BLACKBOARD_OK_TOLERANCE * move_size()) * _ease():
+				missed.emit("Write on the letters!", p)
+				return
+			_bb_pen = true
+			_bb_last = p
+			_bb_drag(p)
 		"spin":
 			_spinning = true
 			_spin_started = true
 			_spin_have = false
 			_spin_move(p)
 		"pry":
-			if p.distance_to(_spot) > Config.PRY_RADIUS * _ease():
+			if p.distance_to(_spot) > (Config.PRY_RADIUS * move_size()) * _ease():
 				missed.emit("Hold on the wedge!", p)
 				return
 			_holding = true
@@ -1213,6 +1282,8 @@ func release(p: Vector2) -> void:
 	if _spinning:
 		_spinning = false  # letting go just stops the spin counting (the clock keeps going)
 		_spin_have = false
+	elif _bb_pen:
+		_bb_pen = false  # the Blackboard: lifting the pen is fine, carry on whenever you like
 	elif _tracing:
 		_miss("Too short!", p)
 	elif _holding:
@@ -1232,7 +1303,7 @@ func _tap(p: Vector2) -> void:
 	var best := -1
 	for i in _targets.size():
 		var tg: Dictionary = _targets[i]
-		if tg.state != 0 or _tap_clock < tg.spawn or p.distance_to(tg.p) > Config.TAP_RADIUS * _ease():
+		if tg.state != 0 or _tap_clock < tg.spawn or p.distance_to(tg.p) > (Config.TAP_RADIUS * move_size()) * _ease():
 			continue
 		if best < 0 or tg.hit_t < _targets[best].hit_t:
 			best = i
@@ -1308,7 +1379,7 @@ func _pop(at: Vector2, text: String, col: Color) -> void:
 
 
 func _drill(p: Vector2) -> void:
-	if p.distance_to(_spot) > Config.DRILL_RADIUS * _ease():
+	if p.distance_to(_spot) > (Config.DRILL_RADIUS * move_size()) * _ease():
 		_stray(p, "Same spot!")
 		return
 	_clicks += 1
@@ -1316,14 +1387,14 @@ func _drill(p: Vector2) -> void:
 	_spray(_spot + Vector2(randf_range(-10, 10), randf_range(-10, 10)), 5)
 	Sfx.play("drill", 0.85 + 0.5 * float(_clicks) / _clicks_need)
 	if _clicks >= _clicks_need:
-		_marks.append({"t": "hole", "p": _spot, "r": Config.DRILL_RADIUS * 0.55, "cells": _burst(_spot, 6, 0)})
+		_marks.append({"t": "hole", "p": _spot, "r": (Config.DRILL_RADIUS * move_size()) * 0.55, "cells": _burst(_spot, 6, 0)})
 		_complete(_strays == 0, _spot)
 	queue_redraw()
 
 
 ## The moving drill: click it wherever it is right now.
 func _track_click(p: Vector2) -> void:
-	if p.distance_to(_spot) > Config.TRACK_RADIUS * _ease():
+	if p.distance_to(_spot) > (Config.TRACK_RADIUS * move_size()) * _ease():
 		_stray(p, "Missed it!", Config.TRACK_MISS_WICK_COST)
 		return
 	_clicks += 1
@@ -1332,7 +1403,7 @@ func _track_click(p: Vector2) -> void:
 	Sfx.play("drill", 0.85 + 0.5 * float(_clicks) / _clicks_need)
 	_marks.append({"t": "cells", "cells": _burst(_spot, 3, 0)})
 	if _clicks >= _clicks_need:
-		_marks.append({"t": "hole", "p": _spot, "r": Config.TRACK_RADIUS * 0.4, "cells": _burst(_spot, 6, 0)})
+		_marks.append({"t": "hole", "p": _spot, "r": (Config.TRACK_RADIUS * move_size()) * 0.4, "cells": _burst(_spot, 6, 0)})
 		_complete(_strays == 0, _spot)
 	queue_redraw()
 
@@ -1387,7 +1458,7 @@ func drag(p: Vector2) -> void:
 			_miss("Off the line!", q)
 			return
 		# every corner must be visited; until it is, the crack can't go past it
-		if _next_corner < _corners.size() and q.distance_to(_corners[_next_corner]) <= Config.ZIGZAG_CORNER_RADIUS:
+		if _next_corner < _corners.size() and q.distance_to(_corners[_next_corner]) <= (Config.ZIGZAG_CORNER_RADIUS * move_size()):
 			_next_corner += 1
 		var cap := _corner_s[_next_corner] if _next_corner < _corner_s.size() else INF
 		_progress = maxf(_progress, minf(r.y, cap))
@@ -1406,7 +1477,8 @@ func drag(p: Vector2) -> void:
 
 ## How strict tracing this line is: (miss distance, line ahead that counts, perfect distance) in px.
 func _trace_cfg() -> Vector3:
-	var e := _ease()
+	var m := move_size()
+	var e := _ease() * Vector3(m, 1.0, m)  # (how far ahead counts isn't part of the wiggle room)
 	match kind:
 		"slash":
 			return Vector3(Config.SLASH_OK_TOLERANCE, Config.SLASH_LOOKAHEAD, Config.SLASH_PERFECT_TOLERANCE) * e
@@ -1415,6 +1487,17 @@ func _trace_cfg() -> Vector3:
 		"swirl":
 			return Vector3(Config.SWIRL_OK_TOLERANCE, Config.SWIRL_LOOKAHEAD, Config.SWIRL_PERFECT_TOLERANCE) * e
 	return Vector3(Config.ZIGZAG_OK_TOLERANCE, Config.ZIGZAG_LOOKAHEAD, Config.ZIGZAG_PERFECT_TOLERANCE) * e
+
+
+## How big and forgiving circles and lines are (1 = normal): big, with lots of wiggle room on the first
+## stages, smaller and stricter the deeper the run goes (smoothly, wall by wall), down to MOVE_SIZE_MIN.
+## Circles (tap, drill, track, pry) get bigger on screen AND easier to hit; lines get more room to stray
+## (miss and PERFECT distance), bigger corner rings and start dots. Practice and the tour: stage 1's size.
+func move_size() -> float:
+	if practice != "" or free_practice or not Game.trip_active:
+		return Config.MOVE_SIZE_START
+	var depth := float(Game.skill_stage() - 1) + clampf(float(Game.stage_walls) / maxf(float(Game.walls_need), 1.0), 0.0, 1.0)
+	return maxf(Config.MOVE_SIZE_START - depth * Config.MOVE_SIZE_STEP, Config.MOVE_SIZE_MIN)
 
 
 ## How forgiving the moves are (1 = normal): Beginner's Luck makes them slower / bigger / easier; Drunk,
@@ -1426,16 +1509,363 @@ func _ease() -> float:
 	e *= pow(Config.DRUNK_HARDER, Game.item_count("drunk"))
 	e *= pow(Config.FAMILIAR_HARDER, Game.item_count("familiar_circle"))
 	e /= pow(Config.GAMBIT_HARDER, Game.item_count("deaths_gambit"))
-	e /= Game.hot_harder()  # Sapphire's Clover
+	e /= Game.clover_harder()  # Sapphires Clover
 	return clampf(e, 0.35, 3.0)
 
 
-## How long the wick lasts (x WICK_TIME): Beginner's Luck and Drunk longer, Death's Gambit and Sapphire's Clover shorter.
+## How long a full wick lasts before x _wick_mult(): WICK_TIME (faster on later stages); the Blackboard's
+## letters burn it over their own timer instead, and Nail & Hammer always leaves time for its own clock.
+func _wick_time() -> float:
+	if kind == "letters":
+		return _bb_time
+	var t := Config.WICK_TIME * Game.stage_fuel_factor()
+	if kind == "nail":
+		t = maxf(t, _nail_time + Config.NAIL_WICK_SPARE)
+	return t
+
+
+# ------------------------------------------------------------------ nail & hammer
+## A grid of nails all over the wall (3x3, 5x3 or a line of 7). Rows that would sit on the lighter move the
+## grid over to the right of it.
+func _setup_nails(area: Rect2) -> void:
+	var lay: Vector2i = Config.NAIL_LAYOUTS.pick_random() if not Config.NAIL_LAYOUTS.is_empty() else Vector2i(3, 3)
+	var cols := maxi(lay.x, 1)
+	var rows := maxi(lay.y, 1)
+	var r := Config.NAIL_RADIUS * move_size()
+	var box := Rect2(area.position + Vector2(r, r), area.size - Vector2(r, r) * 2.0)  # where nail centres may go
+	var lb := _lighter_box().grow(r)
+	var row_y: Array[float] = []
+	if rows == 1:
+		row_y.append(randf_range(box.position.y, box.end.y))
+	else:
+		for j in rows:
+			row_y.append(lerpf(box.position.y, box.end.y, float(j) / (rows - 1)))
+	var left := box.position.x
+	for y in row_y:
+		if y > lb.position.y:  # a row down by the lighter: keep the whole grid right of it
+			left = maxf(left, lb.end.x)
+	left = minf(left, box.end.x - 1.0)
+	box = Rect2(Vector2(left, box.position.y), Vector2(box.end.x - left, box.size.y))
+	var gap_x := box.size.x / maxf(cols - 1, 1) if cols > 1 else INF
+	var gap_y := box.size.y / maxf(rows - 1, 1) if rows > 1 else INF
+	_nail_r = minf(r, minf(gap_x, gap_y) / 2.3)  # never touching each other
+	for j in rows:
+		for i in cols:
+			var x := lerpf(box.position.x, box.end.x, float(i) / (cols - 1)) if cols > 1 else box.get_center().x
+			_nails.append({"p": Vector2(x, row_y[j]).round(), "hit": false})
+	var per := maxf(Config.NAIL_TIME_PER_NAIL * Game.stage_fuel_factor(), Config.NAIL_TIME_PER_NAIL_MIN)
+	_nail_time = (Config.NAIL_TIME_BASE + per * maxf(_nails.size() - 1, 0)) * _ease()
+	_nail_t = 0.0
+	_nail_started = false
+	_nail_pop = 1.0
+	Sfx.play("hit", 1.5)
+
+
+func _nail_click(p: Vector2) -> void:
+	var best := -1
+	for i in _nails.size():
+		if _nails[i].hit:
+			continue
+		var d := p.distance_to(_nails[i].p)
+		if d <= _nail_r * _ease() and (best < 0 or d < p.distance_to(_nails[best].p)):
+			best = i
+	if best < 0:
+		for n in _nails:
+			if n.hit and p.distance_to(n.p) <= _nail_r * _ease():
+				return  # one that's already in: nothing happens
+		_stray(p, "Missed the nail!")
+		return
+	var nl: Dictionary = _nails[best]
+	nl.hit = true
+	_nail_started = true
+	_jolt = 0.6
+	_marks.append({"t": "cells", "cells": _burst(nl.p, 4, 0)})
+	_spray(nl.p, 7)
+	var left := 0
+	for m in _nails:
+		left += 0 if m.hit else 1
+	Sfx.play("hit", 0.9 + 0.4 * (1.0 - float(left) / maxf(_nails.size(), 1)))
+	if left == 0:
+		_complete(_strays == 0 and _nail_t <= _nail_time * Config.NAIL_PERFECT_PART, _action_center())
+	queue_redraw()
+
+
+func _draw_nails(col: Color) -> void:
+	var r := _nail_r
+	var pulse := 1.0 + 0.1 * sin(_t * 10.0)
+	for nl in _nails:
+		var p: Vector2 = nl.p
+		if nl.hit:  # hammered flush: a flat head in a little dent
+			_pixel_disc(p + Vector2(0, _g()), r * 0.42, Color(0, 0, 0, 0.45))
+			_pixel_disc(p, r * 0.36, Color("#7d8790"))
+			_pixel_disc(p + Vector2(-_g(), -_g()), r * 0.12, Color("#a9b2ba"))
+			continue
+		_pixel_ring(p, r * pulse, 2, Color(col, 0.75))
+		_pixel_disc(p + Vector2(_g(), _g() * 2.0), r * 0.5, Color(0, 0, 0, 0.5))  # shadow
+		_pixel_disc(p, r * 0.5, Color("#5a6470"))  # the head, sticking out
+		_pixel_disc(p + Vector2(-_g(), -_g()), r * 0.38, Color("#c3cbd2"))
+		_pixel_disc(p + Vector2(-_g() * 2.0, -_g() * 2.0), r * 0.13, Color.WHITE)
+	var top := INF
+	var c := Vector2.ZERO
+	for nl in _nails:
+		top = minf(top, nl.p.y)
+		c += nl.p
+	c /= maxf(_nails.size(), 1)
+	var at := Vector2(c.x, top - r - 14.0)
+	if _nail_started:
+		var tl := maxf(_nail_time - _nail_t, 0.0)
+		_text("%.1fs" % tl, at, 20, Config.SLICE_MISS_COLOR if tl < 1.0 else Config.TEXT_COLOR, title_font)
+	else:
+		_text("HAMMER THEM ALL!", at, 20, Config.TEXT_COLOR, font)
+
+
+# ------------------------------------------------------------------ blackboard letters
+## How many letters a Blackboard move asks for (x) and the seconds per letter (y), see Config BLACKBOARD_*.
+func blackboard_letters(skill := -1) -> Vector2:
+	var d := maxi((Game.skill_stage() if skill < 1 else skill) - 1, 0)
+	var per := maxi(Config.BLACKBOARD_STAGES_PER_LETTER, 1)
+	var n := clampi(1 + d / per, 1, maxi(Config.BLACKBOARD_MAX_LETTERS, 1))
+	var step := d - (n - 1) * per  # stages since this letter count began (keeps going at the most letters)
+	var t := Config.BLACKBOARD_LETTER_TIME * pow(Config.BLACKBOARD_NEW_LETTER, n - 1) * pow(Config.BLACKBOARD_SPEEDUP, step)
+	return Vector2(n, maxf(t, Config.BLACKBOARD_LETTER_TIME_MIN))
+
+
+func _setup_letters(area: Rect2) -> void:
+	var lt := blackboard_letters()
+	var n := int(lt.x)
+	if practice != "":  # practicing: 1, 2, 3, 4 letters, round and round
+		n = 1 + _bb_practice_round % maxi(Config.BLACKBOARD_MAX_LETTERS, 1)
+		_bb_practice_round += 1
+		lt = blackboard_letters(1 + (n - 1) * maxi(Config.BLACKBOARD_STAGES_PER_LETTER, 1))
+	_bb_time = lt.y * n
+	_bb_t = 0.0
+	var pool := Config.BLACKBOARD_LETTERS
+	_bb_text = ""
+	for i in n:
+		var ch := pool[randi() % pool.length()]
+		for attempt in 8:
+			if not _bb_text.contains(ch):
+				break
+			ch = pool[randi() % pool.length()]
+		_bb_text += ch
+	# the letters go above the lighter, across the wall
+	var pad := 28.0
+	var band := area
+	band.end.y = minf(area.end.y, _lighter_box().position.y - 8.0)
+	if band.size.y < 160.0:
+		band = area
+	var wf := 0.72  # a letter's width, part of its height
+	var gf := 0.32  # gap between letters, part of the height
+	var h := minf(Config.BLACKBOARD_LETTER_HEIGHT, band.size.y - pad * 2.0)
+	h = minf(h, (band.size.x - pad * 2.0) / (n * wf + (n - 1) * gf))
+	var w := h * wf
+	var total := Vector2(n * w + (n - 1) * h * gf, h)
+	var o := (band.get_center() - total * 0.5).round()
+	_bb_area = Rect2(o, total)
+	_bb_segs.clear()
+	_bb_pts = PackedVector2Array()
+	_bb_of = PackedInt32Array()
+	_bb_rects.clear()
+	_bb_letter_done.clear()
+	for i in n:
+		var box := Rect2(o + Vector2(i * (w + h * gf), 0), Vector2(w, h))
+		_bb_rects.append(box)
+		_bb_letter_done.append(false)
+		for stroke in _letter_strokes(_bb_text[i]):
+			var pts := PackedVector2Array()
+			for q in stroke:
+				pts.append(box.position + q * box.size)
+			for k in pts.size() - 1:
+				_bb_segs.append({"a": pts[k], "b": pts[k + 1], "li": i})
+				var seg := pts[k].distance_to(pts[k + 1])
+				var m := maxi(1, ceili(seg / 7.0))
+				for j in m:
+					_bb_pts.append(pts[k].lerp(pts[k + 1], float(j) / m))
+					_bb_of.append(i)
+			_bb_pts.append(pts[pts.size() - 1])
+			_bb_of.append(i)
+	_bb_done = PackedByteArray()
+	_bb_done.resize(_bb_pts.size())
+	_bb_done.fill(0)
+
+
+static func _lp(a: Array) -> PackedVector2Array:
+	var out := PackedVector2Array()
+	for k in range(0, a.size(), 2):
+		out.append(Vector2(a[k], a[k + 1]))
+	return out
+
+
+static func _arc_pts(c: Vector2, rad: Vector2, a0: float, a1: float) -> PackedVector2Array:
+	var out := PackedVector2Array()
+	var steps := maxi(6, ceili(absf(a1 - a0) / 15.0))
+	for k in steps + 1:
+		var a := deg_to_rad(lerpf(a0, a1, float(k) / steps))
+		out.append(c + Vector2(cos(a) * rad.x, sin(a) * rad.y))
+	return out
+
+
+static func _join(parts: Array) -> PackedVector2Array:
+	var out := PackedVector2Array()
+	for part in parts:
+		out.append_array(part)
+	return out
+
+
+## The strokes of a capital letter in a 1 x 1 box (x right, y down). Curves are polylines.
+static func _letter_strokes(ch: String) -> Array[PackedVector2Array]:
+	var st: Array[PackedVector2Array] = []
+	match ch:
+		"A": st = [_lp([0, 1, 0.5, 0, 1, 1]), _lp([0.22, 0.62, 0.78, 0.62])]
+		"B": st = [_lp([0, 0, 0, 1]),
+				_join([_lp([0, 0, 0.55, 0]), _arc_pts(Vector2(0.55, 0.25), Vector2(0.37, 0.25), -90, 90), _lp([0, 0.5])]),
+				_join([_lp([0, 0.5, 0.58, 0.5]), _arc_pts(Vector2(0.58, 0.75), Vector2(0.42, 0.25), -90, 90), _lp([0, 1])])]
+		"C": st = [_arc_pts(Vector2(0.52, 0.5), Vector2(0.5, 0.5), -40, -320)]
+		"D": st = [_lp([0, 0, 0, 1]), _join([_lp([0, 0, 0.4, 0]), _arc_pts(Vector2(0.4, 0.5), Vector2(0.6, 0.5), -90, 90), _lp([0, 1])])]
+		"E": st = [_lp([1, 0, 0, 0, 0, 1, 1, 1]), _lp([0, 0.5, 0.75, 0.5])]
+		"F": st = [_lp([1, 0, 0, 0, 0, 1]), _lp([0, 0.5, 0.75, 0.5])]
+		"G": st = [_join([_arc_pts(Vector2(0.5, 0.5), Vector2(0.5, 0.5), -40, -360), _lp([0.55, 0.5])])]
+		"H": st = [_lp([0, 0, 0, 1]), _lp([1, 0, 1, 1]), _lp([0, 0.5, 1, 0.5])]
+		"I": st = [_lp([0.5, 0, 0.5, 1]), _lp([0.2, 0, 0.8, 0]), _lp([0.2, 1, 0.8, 1])]
+		"J": st = [_lp([0.3, 0, 1, 0]), _join([_lp([0.75, 0, 0.75, 0.7]), _arc_pts(Vector2(0.4, 0.7), Vector2(0.35, 0.3), 0, 180)])]
+		"K": st = [_lp([0, 0, 0, 1]), _lp([1, 0, 0, 0.6]), _lp([0.3, 0.4, 1, 1])]
+		"L": st = [_lp([0, 0, 0, 1, 1, 1])]
+		"M": st = [_lp([0, 1, 0, 0, 0.5, 0.6, 1, 0, 1, 1])]
+		"N": st = [_lp([0, 1, 0, 0, 1, 1, 1, 0])]
+		"O": st = [_arc_pts(Vector2(0.5, 0.5), Vector2(0.5, 0.5), 0, 360)]
+		"P": st = [_join([_lp([0, 1, 0, 0, 0.55, 0]), _arc_pts(Vector2(0.55, 0.27), Vector2(0.45, 0.27), -90, 90), _lp([0, 0.54])])]
+		"Q": st = [_arc_pts(Vector2(0.5, 0.5), Vector2(0.5, 0.5), 0, 360), _lp([0.6, 0.65, 1, 1])]
+		"R": st = [_join([_lp([0, 1, 0, 0, 0.55, 0]), _arc_pts(Vector2(0.55, 0.27), Vector2(0.45, 0.27), -90, 90), _lp([0, 0.54])]), _lp([0.4, 0.54, 1, 1])]
+		"S": st = [_join([_arc_pts(Vector2(0.5, 0.26), Vector2(0.45, 0.24), -20, -270), _arc_pts(Vector2(0.5, 0.75), Vector2(0.48, 0.25), -90, 160)])]
+		"T": st = [_lp([0, 0, 1, 0]), _lp([0.5, 0, 0.5, 1])]
+		"U": st = [_join([_lp([0, 0, 0, 0.6]), _arc_pts(Vector2(0.5, 0.6), Vector2(0.5, 0.4), 180, 0), _lp([1, 0])])]
+		"V": st = [_lp([0, 0, 0.5, 1, 1, 0])]
+		"W": st = [_lp([0, 0, 0.25, 1, 0.5, 0.35, 0.75, 1, 1, 0])]
+		"X": st = [_lp([0, 0, 1, 1]), _lp([1, 0, 0, 1])]
+		"Y": st = [_lp([0, 0, 0.5, 0.5, 1, 0]), _lp([0.5, 0.5, 0.5, 1])]
+		"Z": st = [_lp([0, 0, 1, 0, 0, 1, 1, 1])]
+		_: st = [_arc_pts(Vector2(0.5, 0.5), Vector2(0.5, 0.5), 0, 360)]
+	return st
+
+
+## How far p is from the nearest bit of any letter on the wall.
+func _bb_near(p: Vector2) -> float:
+	var best := INF
+	for q in _bb_pts:
+		best = minf(best, p.distance_squared_to(q))
+	return sqrt(best)
+
+
+## The pen moved (held down): crack in every bit of letter close to it. Off the letters = a stray, the pen lifts.
+func _bb_drag(p: Vector2) -> void:
+	if not _bb_pen or kind != "letters":
+		return
+	var m := move_size() * _ease()
+	var hit2 := pow(Config.BLACKBOARD_HIT_RADIUS * m, 2.0)
+	var ok2 := pow(Config.BLACKBOARD_OK_TOLERANCE * m, 2.0)
+	var steps := maxi(1, ceili(_bb_last.distance_to(p) / STEP))
+	var traced := false
+	for k in steps:
+		var q := _bb_last.lerp(p, float(k + 1) / steps)
+		var near := INF
+		for i in _bb_pts.size():
+			var d := q.distance_squared_to(_bb_pts[i])
+			near = minf(near, d)
+			if d <= hit2 and _bb_done[i] == 0:
+				_bb_done[i] = 1
+				traced = true
+		if near > ok2:
+			_bb_pen = false
+			_stray(q, "Off the letter!")
+			queue_redraw()
+			return
+	_bb_last = p
+	if traced:
+		_bb_check()
+	queue_redraw()
+
+
+## Any letter traced enough? All of them = the move's done.
+func _bb_check() -> void:
+	var have := PackedInt32Array()
+	var need := PackedInt32Array()
+	have.resize(_bb_rects.size())
+	need.resize(_bb_rects.size())
+	have.fill(0)
+	need.fill(0)
+	for i in _bb_pts.size():
+		need[_bb_of[i]] += 1
+		have[_bb_of[i]] += _bb_done[i]
+	var all := true
+	for li in _bb_rects.size():
+		if not _bb_letter_done[li] and have[li] >= need[li] * Config.BLACKBOARD_FINISH:
+			_bb_letter_done[li] = true
+			for i in _bb_pts.size():
+				if _bb_of[i] == li:
+					_bb_done[i] = 1
+			_marks.append({"t": "cells", "cells": _letter_crack(li)})  # it stays cracked into the wall
+			_spray(_bb_rects[li].get_center(), 10)
+			Sfx.play("crack", 1.1 + 0.1 * li)
+			_pop(_bb_rects[li].get_center() + Vector2(0, -_bb_rects[li].size.y * 0.5), _bb_text[li] + "!", Config.ACCENT)
+		all = all and _bb_letter_done[li]
+	if all:
+		var limit := _bb_time * (_wick_mult() if practice == "" else 1.0)
+		_bb_pen = false
+		_complete(_strays == 0 and _bb_t <= limit * Config.BLACKBOARD_PERFECT_PART, _bb_area.get_center())
+
+
+## The letters on the wall: guide dots like the other lines, and the bits you've traced already cracked in.
+func _draw_letters(col: Color) -> void:
+	var pulse := 0.65 + 0.35 * sin(_t * 6.0)
+	var cc := Color(col, pulse)
+	for i in _bb_pts.size():
+		var c := Vector2(_cell(_bb_pts[i]))
+		if _bb_done[i] == 1:
+			if not _bb_letter_done[_bb_of[i]]:  # (a finished letter is a real crack in the wall by now)
+				if Config.CUT_EDGE_COLOR.a > 0.0:
+					_ci.draw_rect(_px_rect(c + Vector2.DOWN, 2, 2), Config.CUT_EDGE_COLOR)
+				_ci.draw_rect(_px_rect(c, 2, 2), Config.CUT_COLOR)
+		elif i % 2 == 0:
+			_ci.draw_rect(_px_rect(c + Vector2(0, 1), 2, 2), Color(0, 0, 0, 0.45 * pulse))
+			_ci.draw_rect(_px_rect(c, 2, 2), cc)
+	if _bb_pen:
+		_pixel_disc(_bb_last, 5.0, Config.SLICE_TRAIL_COLOR)
+	# the clock (it's your wick: the wick gauge shows it too)
+	var at := Vector2(_bb_area.get_center().x, _bb_area.position.y - 18.0)
+	if practice == "":
+		var full := _bb_time * _wick_mult()
+		var left := (wick + wick_extra) * full
+		_text("%.1fs" % maxf(left, 0.0), at, 20, Config.SLICE_MISS_COLOR if left < full * 0.3 else Config.TEXT_COLOR, title_font)
+	else:
+		_text("%d letter%s" % [_bb_text.length(), "" if _bb_text.length() == 1 else "s"], at, 18, Config.TEXT_COLOR, font)
+
+
+## A finished letter's crack: every stroke cracked into the wall, with a couple of little side-cracks.
+func _letter_crack(li: int) -> PackedVector2Array:
+	var cells := {}
+	var segs := _bb_segs.filter(func(sg): return sg.li == li)
+	for sg in segs:
+		var tangent: Vector2 = (sg.b - sg.a).normalized()
+		for q in _line_cells(_cell(sg.a), _cell(sg.b)):
+			_stamp(cells, q, 0.0, 2, tangent)
+	for k in 2:
+		if segs.is_empty():
+			break
+		var sg: Dictionary = segs.pick_random()
+		var tangent: Vector2 = (sg.b - sg.a).normalized()
+		_branch(cells, _cell(sg.a.lerp(sg.b, randf())), tangent.orthogonal() * (1.0 if k == 0 else -1.0), 0.0)
+	var out := PackedVector2Array()
+	for c in cells:
+		out.append(Vector2(c))
+	return out
+
+
+## How long the wick lasts (x WICK_TIME): Beginner's Luck and Drunk longer, Death's Gambit and Sapphires Clover shorter.
 func _wick_mult() -> float:
 	if not _run_on():
 		return 1.0
 	var m := pow(Config.BEGINNERS_LUCK_EASE, Game.item_count("beginners_luck")) * pow(Config.DRUNK_WICK, Game.item_count("drunk"))
-	m /= pow(Config.GAMBIT_HARDER, Game.item_count("deaths_gambit")) * Game.hot_harder()
+	m /= pow(Config.GAMBIT_HARDER, Game.item_count("deaths_gambit")) * Game.clover_harder()
 	return m
 
 
@@ -1443,7 +1873,7 @@ func _wick_mult() -> float:
 func _light_mult() -> float:
 	if not _run_on():
 		return 1.0
-	return pow(Config.STANDARD_GLOVES_LIGHT, Game.item_count("standard_gloves")) / (pow(Config.GAMBIT_HARDER, Game.item_count("deaths_gambit")) * Game.hot_harder())
+	return pow(Config.STANDARD_GLOVES_LIGHT, Game.item_count("standard_gloves")) / (pow(Config.GAMBIT_HARDER, Game.item_count("deaths_gambit")) * Game.clover_harder())
 
 
 ## Art of Peace: no screen shaking, flashing or red edges.
@@ -1588,7 +2018,7 @@ func use_dynamite() -> bool:
 func _note_fail() -> void:
 	_lose_combo(_action_center() + Vector2(0, -40))
 	_little_light_burn()
-	_wall_fails += 1 if practice == "" else 0
+	_heart_mistake()
 	_break_focus()
 
 
@@ -1654,9 +2084,6 @@ func _complete(perfect: bool, at: Vector2) -> void:
 		combo += 1
 	else:
 		combo = 0
-	if practice == "":
-		_wall_moves += 1
-		_wall_perfects += 1 if perfect else 0
 	if perfect:
 		perfect_streak += 1
 		if perfect_streak == Config.DEEP_FOCUS_PERFECTS:
@@ -1667,7 +2094,7 @@ func _complete(perfect: bool, at: Vector2) -> void:
 		_break_focus()
 	action_done.emit(perfect, at, combo, combo_multiplier())
 	if practice != "":
-		practiced.emit(done_kind)
+		practice_done.emit(done_kind)
 	else:
 		actions_left -= Config.SPIKE_BOOTS_COUNT * Game.item_count("spike_boots") if _run_on() and Game.has_item("spike_boots") else 1
 	if actions_left <= 0 and practice == "":
@@ -1738,7 +2165,7 @@ func _next_action_soon() -> void:
 func _fail(reason: String, at: Vector2) -> void:
 	var lost := combo
 	combo = 0
-	_wall_fails += 1 if practice == "" else 0
+	_heart_mistake()
 	_break_focus()
 	kind = ""
 	_reset_input()
@@ -1771,6 +2198,10 @@ func _light_died() -> void:
 
 # ------------------------------------------------------------------ the lighter
 func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode in [KEY_ENTER, KEY_KP_ENTER] and beat_skippable():
+		skip_beat_practice()  # = the "Okay" button
+		get_viewport().set_input_as_handled()
+		return
 	if active and event is InputEventKey and event.pressed and not event.echo and event.keycode == Config.LIGHTER_KEY:
 		if resting:
 			if not rest_hold:
@@ -1844,11 +2275,12 @@ func flick() -> void:
 				_pop(Vector2(br.end.x + 90, br.position.y + 60), "Too soon!" if early else "Too late!", Config.SLICE_MISS_COLOR)
 				if Config.FLICK_FAIL_LOSES_COMBO:
 					_lose_combo(Vector2(br.end.x + 90, br.position.y + 30))
-				_wall_fails += 1 if practice == "" else 0
+				_heart_mistake()
 				_break_focus()
 				return
 			_beat_used = true
 			_fm_ok = 0.25
+			_heart_calm()
 			var gain := flick_gain()
 			if _run_on() and Game.has_item("stronger_fluids"):
 				gain = maxf(gain, Config.STRONGER_FLUIDS_GAIN)  # two good flicks = full blaze
@@ -1858,7 +2290,7 @@ func flick() -> void:
 			_sparks(4)
 			Sfx.play("flick", 0.9 + 0.3 * light)
 			if practice == "flick":
-				practiced.emit("flick")
+				practice_done.emit("flick")
 		"out":
 			if _lid_target < 1.0:
 				_lid_target = 1.0
@@ -1881,27 +2313,53 @@ func flick() -> void:
 				Sfx.play("misfire")
 
 
-## The FLICK bar's tempo: [seconds per heartbeat, gold zone size]. It's your heart rate (bpm), which
-## only changes when a wall breaks - never in the middle of a wall, whatever move you're doing.
+## The FLICK bar's tempo: [seconds per heartbeat, gold zone size]. It's your heart rate (heart_bpm): the bar
+## keeps its place in the beat when your heart speeds up or slows down, it just fills faster or slower.
 func flick_tempo() -> Vector2:
 	return Vector2(60.0 / maxf(heart_bpm(), 1.0), lerpf(Config.FLICK_ZONE_CALM, Config.FLICK_ZONE_STRESS, heart_stress()))
 
 
-## Your heart rate right now. Before the first wall of a run breaks it's just the stage's.
+## Your heart rate right now: what your mistakes and flicks made it, never below the stage's floor
+## (Game.stage_bpm: the cave's bpm on stage 1, +HEART_STAGE_BPM a stage) or above HEART_STRESS_BPM.
+## Practice: the BPM you picked on the Practice screen.
 func heart_bpm() -> float:
-	return bpm if bpm > 0.0 else _next_bpm(false)
+	if free_practice:
+		return Game.practice_bpm
+	return clampf(maxf(bpm, Game.stage_bpm()), Config.HEART_REST_BPM, Config.HEART_STRESS_BPM)
 
 
-## The heart rate for the next wall: a resting heart, plus HEART_STAGE_BPM a stage, plus up to
-## HEART_PERFORM_BPM for how you played the last wall (mostly PERFECT = +, sloppy and failing = -), in steps of HEART_BPM_STEP.
-func _next_bpm(with_play := true) -> float:
-	var b := Config.HEART_REST_BPM + Config.HEART_STAGE_BPM * maxf(Game.skill_stage() - 1, 0)
-	if with_play and _wall_moves > 0:
-		var perf := clampf((float(_wall_perfects) - float(_wall_fails)) / _wall_moves, -1.0, 1.0)
-		b += Config.HEART_PERFORM_BPM * perf
-	if Config.HEART_BPM_STEP > 0.0:
-		b = snappedf(b, Config.HEART_BPM_STEP)  # 60, 70, 80 ... never 73
-	return clampf(b, Config.HEART_REST_BPM, Config.HEART_STRESS_BPM)
+## Does your heart react to how you play? Only on a real trip (not the tour, not Practice).
+func _heart_live() -> bool:
+	return _run_on() and not free_practice
+
+
+## A mistake: your heart jumps HEART_MISTAKE_BPM, and up to HEART_PANIC_BPM more the less wick you have left
+## (a mistake with the wick nearly gone means you're about to lose - your heart spikes).
+func _heart_mistake() -> void:
+	if not _heart_live():
+		return
+	var up := Config.HEART_MISTAKE_BPM + roundf(Config.HEART_PANIC_BPM * (1.0 - clampf(wick, 0.0, 1.0)))
+	_set_heart(heart_bpm() + up)
+
+
+## A good flick: every HEART_CALM_FLICKS of them calm your heart by HEART_CALM_BPM.
+func _heart_calm() -> void:
+	if not _heart_live() or Config.HEART_CALM_FLICKS <= 0:
+		return
+	_calm_flicks += 1
+	if _calm_flicks >= Config.HEART_CALM_FLICKS:
+		_calm_flicks = 0
+		_set_heart(heart_bpm() - Config.HEART_CALM_BPM)
+
+
+func _set_heart(v: float) -> void:
+	var before := heart_bpm()
+	bpm = clampf(v, Game.stage_bpm(), Config.HEART_STRESS_BPM)
+	var now := heart_bpm()
+	if now > before:
+		_bpm_flash = 1.0
+	elif now < before:
+		_bpm_flash = -1.0
 
 
 ## Light one good flick adds. A slow bar gives fewer flicks, so each one gives more: timed perfectly,
@@ -1967,7 +2425,7 @@ func _ignite() -> void:
 	Sfx.play("ignite")
 	relit.emit(_mouse)
 	if practice == "relight":
-		practiced.emit("relight")
+		practice_done.emit("relight")
 		get_tree().create_timer(1.3).timeout.connect(func():
 			if practice == "relight" and light_state == "lit":
 				_go_out())
@@ -2016,7 +2474,7 @@ func _flood() -> void:
 	_pop(_flame_pos() + Vector2(190, 70), "Flooded!", Config.SLICE_MISS_COLOR)
 	if practice != "":
 		return  # the tutorial doesn't take lives
-	_wall_fails += 1 if practice == "" else 0
+	_heart_mistake()
 	_break_focus()
 	if Config.FLICK_FAIL_LOSES_COMBO:
 		_lose_combo(_flame_pos() + Vector2(190, 40))
@@ -2140,7 +2598,7 @@ func _crumble() -> void:
 	new_wall()
 
 
-## The break between walls is over: practise the new heartbeat, a countdown, then the next wall drops in.
+## The break between walls is over: practice the new heartbeat, a countdown, then the next wall drops in.
 func end_rest() -> void:
 	if not resting:
 		return
@@ -2149,26 +2607,38 @@ func end_rest() -> void:
 	_start_beat_practice()
 
 
-## The wall broke, so your heart rate changes: the next wall drops in and the view zooms in on the FLICK bar
-## for BEAT_PRACTICE_TIME seconds to feel the new beat (flicks don't count). The last BEAT_COUNTDOWN seconds
-## count down 3, 2, 1 with a flash each; after 1 the moves start.
+## The wall broke: the next wall drops in and the view zooms in on the FLICK bar for BEAT_PRACTICE_TIME
+## seconds to feel your heartbeat (flicks don't count; a new stage may have lifted it to its floor). It ends
+## with a fast 3, 2, 1 (BEAT_COUNTDOWN_STEP seconds a number) with a flash each; after 1 the moves start.
 func _start_beat_practice() -> void:
-	bpm = _next_bpm()
 	_fm = 0.0
 	_beat_used = false
 	_beat_hits = 0
 	_beat_tries = 0
 	_beat_flicking = light_state == "lit" and not _torch() and not _cats_eyes()
-	var t := Config.BEAT_PRACTICE_TIME if _beat_flicking else float(Config.BEAT_COUNTDOWN)
+	var t := maxf(Config.BEAT_PRACTICE_TIME, _count_len()) if _beat_flicking and Game.beat_practice else _count_len()
 	_show_wall()  # the next wall is up behind it, its moves wait for the countdown
 	if t <= 0.0:
 		_start_wall()
 		return
 	_beat_t = t
-	_beat_tick(ceili(t))
+	_beat_tick(_count_num(t))
 
 
-## Each new second of the practice: 3, 2, 1 shake the screen and the stress comes in red.
+## How long the 3, 2, 1 takes in all (seconds).
+func _count_len() -> float:
+	return maxf(Config.BEAT_COUNTDOWN, 0) * Config.BEAT_COUNTDOWN_STEP
+
+
+## The countdown number showing when t seconds of the beat practice are left: 3, 2, 1, or 0 while you're
+## still feeling the beat (before the countdown).
+func _count_num(t: float) -> int:
+	if t > _count_len() or t <= 0.0 or Config.BEAT_COUNTDOWN_STEP <= 0.0:
+		return 0
+	return clampi(ceili(t / Config.BEAT_COUNTDOWN_STEP - 0.0001), 1, Config.BEAT_COUNTDOWN)
+
+
+## Each number of the countdown: 3, 2, 1 shake the screen and the stress comes in red.
 func _beat_tick(n: int) -> void:
 	if n >= 1 and n <= Config.BEAT_COUNTDOWN:
 		_count_flash = 1.0
@@ -2177,12 +2647,36 @@ func _beat_tick(n: int) -> void:
 		Sfx.play("click", 0.9)
 
 
-## Zoomed in on the FLICK bar after a wall (practising the beat, then 3, 2, 1).
+## Zoomed in on the FLICK bar after a wall (practicing the beat, then 3, 2, 1).
 func in_beat_practice() -> bool:
 	return _beat_t > 0.0
 
 
-## A flick while practising the beat: it just tells you how you did and costs nothing.
+## Still feeling the beat (before the 3, 2, 1): the "Okay" button can skip it.
+func beat_skippable() -> bool:
+	return active and in_beat_practice() and _beat_flicking and _beat_t > _count_len()
+
+
+## "Okay": skip the rest of the beat practice, straight to the 3, 2, 1 (or the wall, with no countdown).
+func skip_beat_practice() -> void:
+	if not beat_skippable():
+		return
+	if Config.BEAT_COUNTDOWN <= 0:
+		_beat_t = 0.0
+		Sfx.play("ignite", 1.2)
+		_start_wall()
+		return
+	_beat_t = _count_len()
+	_beat_tick(Config.BEAT_COUNTDOWN)
+
+
+## Where the "Okay" button goes while you feel the beat (its centre, in this view's coordinates).
+func beat_okay_pos() -> Vector2:
+	var br := _zoomed_bar_rect()
+	return Vector2(lerpf(br.end.x, size.x - 150.0, 0.5), br.get_center().y + 118.0)
+
+
+## A flick while practicing the beat: it just tells you how you did and costs nothing.
 func _practice_flick() -> void:
 	if light_state != "lit":
 		return
@@ -2230,27 +2724,28 @@ func _process(delta: float) -> void:
 	_shake_off = (Vector2(randf_range(-1, 1), randf_range(-1, 1)) * (_shake_l * (0.0 if peaceful() else 10.0) + tremble)).round()
 	_meter_hit = maxf(_meter_hit - delta, 0.0)
 	_fm_ok = maxf(_fm_ok - delta, 0.0)
+	_bpm_flash = move_toward(_bpm_flash, 0.0, delta * 1.5)
 	_fm_bad = maxf(_fm_bad - delta, 0.0)
 	_beat_kick = maxf(_beat_kick - delta * 6.0, 0.0)
 	_hype_t = maxf(_hype_t - delta, 0.0)
-	var practising := active and in_beat_practice()
-	_zoom = move_toward(_zoom, 1.0 if in_beat_practice() else 0.0, delta / 0.45)
-	if active and light_state == "lit" and ((not _falling and rise >= 1.0) or practising):
+	var beat_on := active and in_beat_practice()
+	_zoom = move_toward(_zoom, 1.0 if in_beat_practice() else 0.0, delta / maxf(Config.BEAT_ZOOM_TIME, 0.01))
+	if active and light_state == "lit" and ((not _falling and rise >= 1.0) or beat_on):
 		_fm += delta / flick_tempo().x
 		if _fm >= 1.0:
 			_fm = fmod(_fm, 1.0)  # the next heartbeat: the bar starts filling again
 			_beat_used = false
 			_beat_kick = 1.0
-	_count_flash = maxf(_count_flash - delta * 1.6, 0.0)
-	if practising:
-		var before := ceili(_beat_t)
+	_count_flash = maxf(_count_flash - delta * 1.6 / clampf(Config.BEAT_COUNTDOWN_STEP, 0.1, 1.0), 0.0)  # each number's flash is gone before the next
+	if beat_on:
+		var before := _count_num(_beat_t)
 		_beat_t -= delta
 		if _beat_t <= 0.0:
 			_beat_t = 0.0
 			Sfx.play("ignite", 1.2)
 			_start_wall()  # after 1: back to the game
-		elif ceili(_beat_t) != before:
-			_beat_tick(ceili(_beat_t))
+		elif _count_num(_beat_t) != before:
+			_beat_tick(_count_num(_beat_t))
 	_meter_miss = maxf(_meter_miss - delta, 0.0)
 	# the Torch: you hold it instead of the lighter - it's burning as soon as the wall is up, no flicking
 	if active and _torch() and light_state in ["off", "out"] and not _falling and not resting and rise >= 1.0 and practice == "":
@@ -2264,9 +2759,12 @@ func _process(delta: float) -> void:
 			else:
 				_meter = -_meter
 				_meter_dir = 1.0
-		if practice == "":
-			relight_left -= delta
-			if relight_left <= 0.0:
+		relight_left -= delta  # the countdown runs in practice too: without it, hit / miss / hit... sped the marker up forever
+		if relight_left <= 0.0:
+			if practice != "":  # practicing: no life to lose - it just starts over at the first speed
+				_pop(_flame_pos() + Vector2(190, -40), "Too slow - try again!", Config.SLICE_MISS_COLOR)
+				_go_out()
+			else:
 				if _dropped_run:  # it was knocked out of your hand and you didn't get it going again
 					_dropped_run = false
 					light_state = "off"
@@ -2301,15 +2799,16 @@ func _process(delta: float) -> void:
 	_mandrake()
 	_miss_flash = maxf(_miss_flash - delta, 0.0)
 	_jolt = maxf(_jolt - delta * 8.0, 0.0)
+	_nail_pop = maxf(_nail_pop - delta * 2.5, 0.0)
 	_wick_flash = maxf(_wick_flash - delta, 0.0)
 	if active and light_state == "lit" and not _falling and rise >= 1.0 and not in_beat_practice():
-		var burn := delta / maxf(Config.WICK_TIME * Game.stage_fuel_factor() * _wick_mult(), 0.1)
+		var burn := delta / maxf(_wick_time() * _wick_mult(), 0.1)
 		var extra := _run_on() and wick_extra > 0.0  # Extra Wick: while it burns, the light holds
 		if _hold > 0.0:
 			_hold -= delta  # still at full blaze
 		elif not extra and not _torch() and not _cats_eyes():
 			light -= delta / maxf(Config.LIGHT_DURATION * Game.stage_fuel_factor() * _light_mult(), 0.1)
-		if kind != "" and practice == "" and _hold <= 0.0 and not _torch():  # the Torch never burns down
+		if kind != "" and practice == "" and (_hold <= 0.0 or kind == "letters") and not _torch():  # the Torch never burns down (the Blackboard's clock runs through a full blaze too)
 			if extra:
 				wick_extra = maxf(wick_extra - burn, 0.0)
 			else:
@@ -2326,9 +2825,9 @@ func _process(delta: float) -> void:
 			if _hold <= 0.0 and light < 0.85 and light < wick - 0.02 and not _beat_used and _fm >= lerpf(z.x, z.y, 0.35) and _fm <= z.y:
 				flick()
 		if free_practice and practice not in ["flick", "relight"]:
-			light = 1.0  # practising a move: the lighter just stays bright, nothing to look after
+			light = 1.0  # practicing a move: the lighter just stays bright, nothing to look after
 		elif practice != "":
-			light = maxf(light, 0.15)  # the tutorial lets you practise flicking without going out
+			light = maxf(light, 0.15)  # the tutorial lets you practice flicking without going out
 		elif light <= 0.0:
 			_light_died()
 	if active and can_act():
@@ -2346,6 +2845,16 @@ func _process(delta: float) -> void:
 		if kind == "track":
 			_track_time += delta / _ease()
 			_spot = _track_pos_at(_track_time)
+		if kind == "nail" and _nail_started:
+			_nail_t += delta
+			if _nail_t > _nail_time:
+				for n in _nails:
+					n.hit = false  # too slow: the nails pop back up
+				_nail_started = false
+				_nail_t = 0.0
+				_miss("Too slow - hammer faster!", _action_center())
+		if kind == "letters":
+			_bb_t += delta
 		if kind == "spin" and _spin_started:
 			_spin_t += delta
 			if _spin_t > _spin_time():
@@ -2551,6 +3060,8 @@ func _draw() -> void:
 			"pry": _draw_pry(col)
 			"track": _draw_track(col)
 			"spin": _draw_spin(col)
+			"nail": _draw_nails(col)
+			"letters": _draw_letters(col)
 	_draw_chips(false)
 
 
@@ -2654,7 +3165,7 @@ func _draw_top() -> void:
 	if not zoomed:
 		_draw_pops()
 	_draw_hud()
-	if zoomed:  # practising the beat after a wall: the whole game goes dark, only the FLICK bar is lit
+	if zoomed:  # practicing the beat after a wall: the whole game goes dark, only the FLICK bar is lit
 		_ci.draw_rect(Rect2(Vector2.ZERO, size), Color(0, 0, 0, Config.BEAT_PRACTICE_DIM * _zoom_e()))
 		_draw_flick_bar()
 		_draw_beat_practice()
@@ -2668,7 +3179,7 @@ func _draw_pops() -> void:
 	for pp in _pops:
 		var c: Color = pp.c
 		c.a = clampf(pp.life * 3.0, 0.0, 1.0)
-		_text(pp.text, pp.p - Vector2(0, Config.TAP_RADIUS + 8), 20, c, title_font)
+		_text(pp.text, pp.p - Vector2(0, (Config.TAP_RADIUS * move_size()) + 8), 20, c, title_font)
 
 
 func _zoom_e() -> float:
@@ -2685,7 +3196,7 @@ func heart_stress() -> float:
 	return clampf(inverse_lerp(Config.HEART_REST_BPM, Config.HEART_STRESS_BPM, heart_bpm()), 0.0, 1.0)
 
 
-## Where the FLICK bar is drawn: zoomed in to the middle of the screen while you practise the beat,
+## Where the FLICK bar is drawn: zoomed in to the middle of the screen while you practice the beat,
 ## and it jolts on every heartbeat (harder the faster your heart goes). Returns (origin, scale).
 func _bar_xform() -> Array:
 	var r := flick_bar_rect()
@@ -2700,7 +3211,7 @@ func _bar_xform() -> Array:
 	return [(c - r.get_center() * sc + off).round(), sc]
 
 
-## The FLICK bar's rect on screen (zoomed in while you practise the beat).
+## The FLICK bar's rect on screen (zoomed in while you practice the beat).
 func _zoomed_bar_rect() -> Rect2:
 	var r := flick_bar_rect()
 	var xf := _bar_xform()
@@ -2709,7 +3220,7 @@ func _zoomed_bar_rect() -> Rect2:
 	return Rect2(o + r.position * sc, r.size * sc)
 
 
-## After a wall: "feel the beat" for BEAT_PRACTICE_TIME seconds, then a 3, 2, 1 countdown.
+## After a wall: "feel the beat" for BEAT_PRACTICE_TIME seconds, ending in a fast 3, 2, 1 countdown.
 func _draw_beat_practice() -> void:
 	if _zoom <= 0.0:
 		return
@@ -2720,8 +3231,8 @@ func _draw_beat_practice() -> void:
 		mid = size * 0.5
 	if _beat_t <= 0.0:
 		return  # zooming back out: the words are gone already
-	var n := ceili(_beat_t)
-	var counting := n <= Config.BEAT_COUNTDOWN
+	var n := _count_num(_beat_t)
+	var counting := n > 0
 	if _beat_flicking:
 		_text("FEEL THE BEAT" if not counting else "GET READY", mid + Vector2(0, -70), 40, Color(Config.ACCENT, a), title_font)
 		_text("Your heart: %d BPM" % roundi(heart_bpm()), mid + Vector2(0, -28), 22, Color(Config.TEXT_COLOR, a), font)
@@ -2732,7 +3243,8 @@ func _draw_beat_practice() -> void:
 	elif _beat_t > 0.0:
 		_text("GET READY", mid + Vector2(0, -70), 40, Color(Config.ACCENT, a), title_font)
 	if counting:
-		var pulse := 1.0 + 0.35 * clampf(_beat_t - floorf(_beat_t) - 0.6, 0.0, 0.4) / 0.4
+		var f := fposmod(_beat_t / Config.BEAT_COUNTDOWN_STEP, 1.0)  # 1 -> 0 while each number is up
+		var pulse := 1.0 + 0.35 * clampf(f - 0.6, 0.0, 0.4) / 0.4
 		_text(str(n), mid + Vector2(0, 90), roundi(100 * pulse), Color(Config.ACCENT, a), title_font)
 
 
@@ -2814,7 +3326,8 @@ func _draw_heart(at: Vector2) -> void:
 		for i in line.length():
 			if line[i] == "X":
 				_ci.draw_rect(Rect2(Vector2(x0 + i * px, y0 + row * px).round(), Vector2(px, px).ceil()), hc)
-	_text(txt, Vector2(x0 + hw + 6.0 + tw * 0.5, at.y), 15, Config.TEXT_COLOR, font)
+	var tc := Config.TEXT_COLOR.lerp(Config.SLICE_MISS_COLOR if _bpm_flash > 0.0 else Config.DEEP_FOCUS_COLOR, absf(_bpm_flash))
+	_text(txt, Vector2(x0 + hw + 6.0 + tw * 0.5, at.y), 15, tc, font)
 
 
 ## Deep Focus: your flame art with its warm colours turned blue (its blue gas and white core stay as they are).
@@ -2957,7 +3470,7 @@ func _tap_color(tg: Dictionary, col: Color) -> Color:
 
 
 func _draw_tap(col: Color) -> void:
-	var r := Config.TAP_RADIUS
+	var r := (Config.TAP_RADIUS * move_size())
 	_draw_next_line(col)
 	# draw the ones that close LAST first, so the most urgent circle is on top
 	var order := _targets.duplicate()
@@ -3003,7 +3516,7 @@ func _draw_next_line(col: Color) -> void:
 		var a: Vector2 = live[i].p
 		var b: Vector2 = live[i + 1].p
 		var d := b - a
-		var gap := Config.TAP_RADIUS + 10.0
+		var gap := (Config.TAP_RADIUS * move_size()) + 10.0
 		if d.length() <= gap * 2.0 + 8.0:
 			continue
 		var dir := d.normalized()
@@ -3057,19 +3570,19 @@ func _draw_path(col: Color) -> void:
 		if kind == "swirl":  # bright checkpoints you can't miss
 			var bright := col.lerp(Color.WHITE, 0.4)
 			var big := i == (_next_corner if _tracing else 0)
-			_pixel_ring(_corners[i], Config.ZIGZAG_CORNER_RADIUS * 0.45 + _g(), 2, Color(0, 0, 0, 0.5))
-			_pixel_ring(_corners[i], Config.ZIGZAG_CORNER_RADIUS * 0.45, 2, Color(Config.SLICE_TRAIL_COLOR if big else bright, 0.75 + 0.25 * sin(_t * 8.0 + i)))
+			_pixel_ring(_corners[i], (Config.ZIGZAG_CORNER_RADIUS * move_size()) * 0.45 + _g(), 2, Color(0, 0, 0, 0.5))
+			_pixel_ring(_corners[i], (Config.ZIGZAG_CORNER_RADIUS * move_size()) * 0.45, 2, Color(Config.SLICE_TRAIL_COLOR if big else bright, 0.75 + 0.25 * sin(_t * 8.0 + i)))
 			_pixel_disc(_corners[i], 3.0, bright)
 			continue
 		var ca := 0.35 + 0.25 * sin(_t * 8.0 + i)
-		_pixel_ring(_corners[i], Config.ZIGZAG_CORNER_RADIUS * 0.45, 1, Color(col, ca))
+		_pixel_ring(_corners[i], (Config.ZIGZAG_CORNER_RADIUS * move_size()) * 0.45, 1, Color(col, ca))
 	# the crack you've made so far
 	if _tracing:
 		_draw_cells(_crack_cells, _crack_s.bsearch(_progress, false))
 	# start dot
 	var start := _path[0]
 	if not _tracing:
-		_pixel_ring(start, Config.SLICE_START_RADIUS * (0.55 + 0.15 * sin(_t * 5.0)), 1, col)
+		_pixel_ring(start, (Config.SLICE_START_RADIUS * move_size()) * (0.55 + 0.15 * sin(_t * 5.0)), 1, col)
 		_pixel_disc(start, 9.0, col)
 	# pixel arrow head at the end
 	var end := _path[_path.size() - 1]
@@ -3103,7 +3616,7 @@ func _draw_swirl_line(col: Color) -> void:
 
 
 func _draw_drill(col: Color) -> void:
-	var r := Config.DRILL_RADIUS
+	var r := (Config.DRILL_RADIUS * move_size())
 	var at := _spot + Vector2(randf_range(-1, 1), randf_range(-1, 1)) * _jolt * 6.0
 	var frac := float(_clicks) / maxf(_clicks_need, 1)
 	_pixel_disc(at, r * 0.3 * frac + 5.0, Config.CUT_COLOR)  # the hole getting deeper
@@ -3117,7 +3630,7 @@ func _draw_drill(col: Color) -> void:
 
 ## The moving drill: a ring that fills as you click it, with faint dots showing where it's heading.
 func _draw_track(col: Color) -> void:
-	var r := Config.TRACK_RADIUS
+	var r := (Config.TRACK_RADIUS * move_size())
 	var at := _spot + Vector2(randf_range(-1, 1), randf_range(-1, 1)) * _jolt * 5.0
 	var frac := float(_clicks) / maxf(_clicks_need, 1)
 	for k in range(1, 4):
@@ -3150,7 +3663,7 @@ func _draw_spin(col: Color) -> void:
 
 
 func _draw_pry(col: Color) -> void:
-	var r := Config.PRY_RADIUS
+	var r := (Config.PRY_RADIUS * move_size())
 	_pixel_arc(_spot, r + _g() * 2.0, 0, TAU, 5, Color(0, 0, 0, 0.55))
 	var good_a := _pry_angle(maxf(_zone.x - Config.PRY_GOOD_MARGIN, 0.0))
 	var good_b := _pry_angle(minf(_zone.y + Config.PRY_GOOD_MARGIN, 1.0))
@@ -3227,6 +3740,12 @@ func _draw_hud() -> void:
 		var glow := 0.75 + 0.25 * sin(_t * 3.0)
 		_text("MIDAS x%s" % _num(Game.midas), Vector2(150, 162), 26, Color(1.0, 0.85 * glow + 0.1, 0.3), title_font)
 		_text("pot: %d coins" % Game.run_pot, Vector2(150, 186), 17, Config.ACCENT, font)
+	if kind == "nail" and can_act() and Config.NAIL_ALERT_SIZE > 0:  # Nail & Hammer: "!" on both sides of the screen
+		var flash := fmod(_t * 4.0, 1.0) < 0.5
+		var fs := int(Config.NAIL_ALERT_SIZE * (1.0 + 0.6 * _nail_pop + 0.08 * sin(_t * 12.0)))
+		var ac := Config.SLICE_MISS_COLOR if flash else Config.ACCENT
+		for x in [64.0, size.x - 64.0]:
+			_text("!", Vector2(x, size.y * 0.4), fs, ac, title_font)
 	if _torch() and not resting:
 		_text("TORCH: no flicking this stage", Vector2(size.x * 0.5, 140), 17, Config.ACCENT, font)
 	if _cats_eyes() and light_state == "lit" and not resting and not _falling:
@@ -3315,9 +3834,7 @@ func _draw_relight() -> void:
 		var y := bar.end.y - bar.size.y * float(i) / relight_need
 		_ci.draw_rect(Rect2(bar.position.x, y - 1, bar.size.x, 2), Config.TEXT_OUTLINE_COLOR)
 	_text("%d" % (relight_need - relight_hits), Vector2(bar.get_center().x, bar.end.y + 30), 24, Config.TEXT_COLOR, title_font)
-	if practice != "":
-		return
-	# countdown before you lose a life
+	# countdown before you lose a life (practicing: before it starts over)
 	var frac := clampf(relight_left / maxf(Config.RELIGHT_TIME, 0.01), 0.0, 1.0)
 	var cd := Rect2(track.position.x + 110, track.end.y + 14, 240, 12)
 	var cols: Array = Config.TIMER_COLORS
@@ -3327,7 +3844,7 @@ func _draw_relight() -> void:
 	_ci.draw_rect(cd.grow(3), Config.TEXT_OUTLINE_COLOR)
 	_ci.draw_rect(cd, Config.PANEL_COLOR)
 	_ci.draw_rect(Rect2(cd.position, Vector2(cd.size.x * frac, cd.size.y)), col)
-	_text("%.1fs or lose a life" % maxf(relight_left, 0.0), Vector2(cd.get_center().x, cd.end.y + 24), 16, Config.TEXT_COLOR, font)
+	_text(("%.1fs left" if practice != "" else "%.1fs or lose a life") % maxf(relight_left, 0.0), Vector2(cd.get_center().x, cd.end.y + 24), 16, Config.TEXT_COLOR, font)
 
 
 func _num(v: float) -> String:
@@ -3374,6 +3891,16 @@ func dev_do(sloppy := false, stop_at := 1.0) -> void:
 			for i in _clicks_need:
 				press(_spot + Vector2(randf_range(-20, 20), randf_range(-20, 20)))
 				release(_spot)
+		"nail":
+			for nl in _nails.duplicate():
+				if kind != "nail":
+					break
+				if sloppy and randf() < 0.3:
+					press(nl.p + Vector2(200, 0))
+				press(nl.p)
+		"letters":
+			_bb_done.fill(1)
+			_bb_check()
 		"pry":
 			press(_spot)
 			_fill = (_zone.y + Config.PRY_GOOD_MARGIN * 0.5) if sloppy else (_zone.x + _zone.y) * 0.5
@@ -3421,12 +3948,12 @@ func dev_check_taps(n: int, blockers: Array) -> Dictionary:
 			bad.total += 1
 			lo = lo.min(p)
 			hi = hi.max(p)
-			if not Rect2(Vector2.ZERO, size).grow(-Config.TAP_RADIUS).has_point(p):
+			if not Rect2(Vector2.ZERO, size).grow(-(Config.TAP_RADIUS * move_size())).has_point(p):
 				bad.off_wall += 1
 			if _lighter_box().has_point(p):
 				bad.lighter += 1
 			for r in blockers:
-				if (r as Rect2).grow(Config.TAP_RADIUS * 0.5).has_point(p):
+				if (r as Rect2).grow((Config.TAP_RADIUS * move_size()) * 0.5).has_point(p):
 					bad.blocked += 1
 	bad["min"] = lo
 	bad["max"] = hi

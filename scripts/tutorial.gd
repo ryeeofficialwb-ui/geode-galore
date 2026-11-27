@@ -13,7 +13,7 @@ const PANEL_H := 130.0
 ## (Old saves that finished the old tutorial count the basics as seen: Game.BASIC_TIPS.)
 ## The "?" tour: tip ids in order. Wall steps with a "practice" let you try it with no timer.
 const TOUR := ["anvil", "backpack", "shop", "mine", "lighter", "act_slash", "wick", "beat"]
-## Practising in the tour: once you've done the move (or this many good flicks) the step finishes by itself.
+## Practicing in the tour: once you've done the move (or this many good flicks) the step finishes by itself.
 const PRACTICE_FLICKS := 6
 const PRACTICE_NEXT_DELAY := 1.0  # seconds to see "Nice!" before the next step
 ## A tip up during a real trip freezes the light and wick, but you can still do moves under it: after this
@@ -78,7 +78,7 @@ func _ready() -> void:
 	_next = _button("Got it", func(): _go(index + 1))
 	_next.custom_minimum_size.x = 110
 	row.add_child(_next)
-	main.wall_view.practiced.connect(_on_practiced)
+	main.wall_view.practice_done.connect(_on_practice_done)
 	main.wall_view.action_done.connect(_on_action_done)
 
 
@@ -132,9 +132,9 @@ func _tips() -> Dictionary:
 		"relight": {"title": "Lighter's out!", "screen": "wall", "nodim": true,
 			"text": "Strike SPACE while the marker is in the gold zone until the bar is empty - before the countdown runs out, or you lose a life."},
 		"beat": {"title": "Feel the beat", "screen": "wall", "nodim": true,
-			"text": "Your heart rate (the BPM over the FLICK bar) changes after every wall: faster on deeper stages and when you play well. You get 5 seconds to practise the new beat - these flicks don't count - then 3, 2, 1. Get 5 PERFECT moves in a row and your flame burns BLUE: Deep Focus."},
+			"text": "Your heart rate (the BPM over the FLICK bar) reacts to you: every mistake makes it jump - more when your wick is low - and every 2 good flicks of the lighter calm it down. Deeper stages and pricier caves keep it higher. After every wall you get 2 seconds to practice the beat - these flicks don't count - then a fast 3, 2, 1. Get 5 PERFECT moves in a row and your flame burns BLUE: Deep Focus."},
 		"lives": {"title": "Lives & stages", "screen": "wall", "target": stage_hud,
-			"text": "Break %d-%d walls to clear a stage (the top of the screen says how many): it pays more but gets harder. Lose a life and the stage restarts; lose them all and you drop a stage and your trip ends." % [Config.WALLS_PER_STAGE_MIN, Config.WALLS_PER_STAGE_MAX]},
+			"text": "Break %d walls to clear a stage (one more every %d stages - the top of the screen says how many): it pays more but gets harder. Lose a life and the stage restarts; lose them all and you drop a stage and your trip ends." % [Config.WALLS_PER_STAGE, Config.WALLS_PER_STAGE_EVERY]},
 	}
 	var acts := {
 		"tap": "Tap each circle the moment its ring closes on it, in the order they appear. The long dashed line points to the NEXT one; dots show the ones after it.",
@@ -146,6 +146,8 @@ func _tips() -> Dictionary:
 		"swirl": "Press the glowing dot and trace the spiral into the middle - no cutting across.",
 		"bigslash": "Press the glowing dot and swipe right across the wall - fast!",
 		"spin": "Hold the mouse button and spin round the circle, fast, before the time runs out.",
+		"nail": "Nails pop up all over the wall! Click every one, in any order, as fast as you can. The clock starts at your first hit - too slow and they pop back up.",
+		"letters": "The Blackboard: trace the letters to crack them into the wall. You can let go and carry on whenever you like, any stroke in any order - just don't wander off the letter while you press. Your wick is the clock (the seconds over the letters).",
 	}
 	for k in acts:
 		t["act_" + k] = {"title": WallView.KIND_INFO.get(k, [k.to_upper()])[0], "screen": "wall", "nodim": true,
@@ -178,7 +180,7 @@ func _show_tip(id: String) -> void:
 	if s.is_empty():
 		return
 	s = s.duplicate()
-	s.erase("practice")  # a tip while you play just pauses the mine; practising is for the tour
+	s.erase("practice")  # a tip while you play just pauses the mine; practicing is for the tour
 	s["id"] = id
 	touring = false
 	steps.assign([s])
@@ -254,7 +256,7 @@ func _go(i: int) -> void:
 		main.wall_view.ensure_lit()
 
 
-func _on_practiced(_kind: String) -> void:
+func _on_practice_done(_kind: String) -> void:
 	if not visible or not touring:
 		return
 	_tries += 1
@@ -286,7 +288,7 @@ func _on_action_done(_perfect: bool, _at: Vector2, _combo: int, _mult: float) ->
 		_status.text = "%d more move%s and this tip closes" % [left, "" if left == 1 else "s"]
 
 
-func practicing() -> bool:
+func in_practice() -> bool:
 	return visible and touring and steps.size() > 0 and steps[index].has("practice")
 
 

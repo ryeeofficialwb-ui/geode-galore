@@ -33,10 +33,12 @@ var tutorial_done := false  # stays done after Reset
 var tips_seen := {}       # tip id -> true: tips that already popped up (kept through Reset)
 var show_tips := true     # Settings > Tips
 var color_circles := true # Settings > Coloured circles (each tap circle in its own colour)
+var beat_practice := true # Settings > Beat practice (off: straight to the 3, 2, 1 after every wall)
+var practice_bpm := 60.0  # Practice: the heart rate (FLICK bar tempo) you picked for practicing
 var stage := 1            # mining stage (checkpoint)
 var lives := 0.0          # lives left in this stage (halves count: flooding the lighter costs half a life)
 var stage_walls := 0      # walls broken in this stage
-var walls_need := 5       # walls this stage needs (rolled WALLS_PER_STAGE_MIN..MAX when the stage starts)
+var walls_need := 3       # walls this stage needs (base_walls() when the stage starts, artifacts can change it)
 var restock_buys := 0     # paid restocks since the shop last restocked by itself (each costs more)
 var best_stage := 1
 var market := {}          # rock / ore id -> price multiplier (supply & demand), 1.0 = normal
@@ -63,7 +65,7 @@ var run_used := {}         # consumable id -> run_stages when it was used up (it
 var run_stages := 0        # stages cleared this run
 var ram_uses := 0          # Ram uses left
 var run_swapped := {}      # artifact id -> run_stages when you swapped it out (it can't be offered for SWAP_COOLDOWN stages)
-var hot_stages := 0        # Sapphire's Clover: stages cleared while holding it (rewards and difficulty grow with it)
+var clover_stages := 0        # Sapphires Clover: stages cleared while holding it (rewards and difficulty grow with it)
 var dice_half_stage := -1  # Dice of Dwarves rolled 3-4: walls need half the moves on this stage
 var dice_wick_stage := -1  # Dice of Dwarves rolled 5-6: a free Extra Wick on this stage
 var pet_feeds := 0         # Pet Rock: feeds left before it wanders off
@@ -427,9 +429,9 @@ func wall_cleared() -> bool:
 			dynamite = mini(dynamite + item_count("dynamite"), Config.DYNAMITE_MAX * item_count("dynamite"))
 		midas_add(Config.MIDAS_PER_STAGE)
 		if trip_active:
-			if has_item("hot_hands"):
-				hot_stages += 1
-				hot = "SAPPHIRE'S CLOVER!  Rewards x%s - but the mine is x%s harder" % [_short(hot_reward()), _short(hot_harder())]
+			if has_item("sapphires_clover"):
+				clover_stages += 1
+				hot = "SAPPHIRES CLOVER!  Rewards x%s - but the mine is x%s harder" % [_short(clover_reward()), _short(clover_harder())]
 			for k in item_count("dice_of_dwarves"):
 				var r := roll_dice()
 				dice = r if dice == "" else dice + "\n" + r
@@ -471,7 +473,7 @@ func wall_cleared() -> bool:
 	if found_t != "":
 		found_ticket.emit(found_t)
 	if hot != "":
-		item_used.emit("hot_hands", hot)
+		item_used.emit("sapphires_clover", hot)
 	if dice != "":
 		item_used.emit("dice_of_dwarves", dice)
 	if dice_end:
@@ -479,15 +481,33 @@ func wall_cleared() -> bool:
 	return up
 
 
-## How many walls a new stage needs (WALLS_PER_STAGE_MIN..MAX; Mushroom of Might: MUSHROOM_WALLS;
+## How many walls a new stage needs (base_walls(); Mushroom of Might: MUSHROOM_WALLS;
 ## Wall Breaker: WALL_BREAKER_WALLS fewer, never below 1).
 func roll_walls() -> int:
-	var n := randi_range(Config.WALLS_PER_STAGE_MIN, maxi(Config.WALLS_PER_STAGE_MIN, Config.WALLS_PER_STAGE_MAX))
+	var n := base_walls()
 	if has_item("mushroom_of_might"):
 		n = randi_range(Config.MUSHROOM_WALLS.x, Config.MUSHROOM_WALLS.y)
 	if has_item("wall_breaker"):
 		n -= Config.WALL_BREAKER_WALLS
 	return maxi(n, 1)
+
+
+## Walls a stage needs before artifacts: WALLS_PER_STAGE, one more every WALLS_PER_STAGE_EVERY stages
+## (stages 1-5 = 3, 6-10 = 4, 11-15 = 5 ...).
+func base_walls(at_stage := -1) -> int:
+	var s := stage if at_stage < 1 else at_stage
+	var more := (s - 1) / Config.WALLS_PER_STAGE_EVERY if Config.WALLS_PER_STAGE_EVERY > 0 else 0
+	return maxi(Config.WALLS_PER_STAGE + more, 1)
+
+
+## The lowest your heart rate (FLICK bar BPM) can go on a stage of a cave: the cave's "bpm" on stage 1
+## (Old Mine 60, pricier caves +5 each) and HEART_STAGE_BPM more every stage after that, up to HEART_STRESS_BPM.
+## Mistakes push your heart above it; good flicks calm it back down to it (see WallView.heart_bpm).
+func stage_bpm(at_stage := -1, cave_id := "") -> float:
+	var s := stage if at_stage < 1 else at_stage
+	var start := float(cave_info(cave_id).get("bpm", Config.HEART_REST_BPM))
+	var b := start + Config.HEART_STAGE_BPM * maxf(s - 1, 0)
+	return clampf(b, Config.HEART_REST_BPM, Config.HEART_STRESS_BPM)
 
 
 ## Any rock in the game, all equally likely (the artifacts that dig rocks up).
@@ -643,10 +663,10 @@ func _switch_cave(id: String) -> void:
 	best_stage = maxi(stage, int(p.get("best_stage", 1)))
 
 
-## A saved walls-per-stage, or a fresh roll if it's missing / outside 1..WALLS_PER_STAGE_MAX (items can
-## take it below WALLS_PER_STAGE_MIN).
+## A saved walls-per-stage, or a fresh roll if it's missing / more than this stage can need (artifacts can
+## take it below base_walls(), Mushroom of Might up to MUSHROOM_WALLS).
 func _valid_walls(n: int) -> int:
-	return n if n >= 1 and n <= Config.WALLS_PER_STAGE_MAX else roll_walls()
+	return n if n >= 1 and n <= maxi(base_walls(), Config.MUSHROOM_WALLS.y) else roll_walls()
 
 
 # ------------------------------------------------------------------ tickets
@@ -784,7 +804,7 @@ func _clear_run() -> void:
 	run_used = {}
 	run_swapped = {}
 	run_stages = 0
-	hot_stages = 0
+	clover_stages = 0
 	dice_half_stage = -1
 	dice_wick_stage = -1
 	pet_feeds = 0
@@ -876,8 +896,8 @@ func take_item(id: String, drop := -1) -> bool:
 			walls_need = clampi(walls_need, stage_walls + 1, maxi(Config.MUSHROOM_WALLS.y, stage_walls + 1))
 		"wall_breaker":  # the stage you're on gets easier straight away too
 			walls_need = maxi(walls_need - Config.WALL_BREAKER_WALLS, stage_walls + 1)
-		"hot_hands":
-			hot_stages = 0
+		"sapphires_clover":
+			clover_stages = 0
 		"pet_rock":
 			pet_feeds = Config.PET_ROCK_FEEDS
 	if run_items.has("greed") and run_items.has("is_good"):  # Greed is Good: both go, one more slot for the run
@@ -1007,22 +1027,22 @@ func mine_coins(amount: int) -> void:
 		add_coins(amount)
 
 
-## Rewards on everything (coins, ores, rocks, Draupnir sales): Death's Gambit x10, Sapphire's Clover x2 per stage
+## Rewards on everything (coins, ores, rocks, Draupnir sales): Death's Gambit x10, Sapphires Clover x2 per stage
 ## cleared, Rapid Fire x3.
 func reward_mult() -> float:
 	if not trip_active:
 		return 1.0
-	return pow(Config.GAMBIT_REWARD, item_count("deaths_gambit")) * hot_reward() * pow(Config.RAPID_FIRE_REWARD, item_count("rapid_fire"))
+	return pow(Config.GAMBIT_REWARD, item_count("deaths_gambit")) * clover_reward() * pow(Config.RAPID_FIRE_REWARD, item_count("rapid_fire"))
 
 
-## Sapphire's Clover: rewards x HOT_HANDS_REWARD for every stage cleared while you hold it (a Copy / Catto on it: again).
-func hot_reward() -> float:
-	return pow(Config.HOT_HANDS_REWARD, hot_stages * item_count("hot_hands"))
+## Sapphires Clover: rewards x CLOVER_REWARD for every stage cleared while you hold it (a Copy / Catto on it: again).
+func clover_reward() -> float:
+	return pow(Config.CLOVER_REWARD, clover_stages * item_count("sapphires_clover"))
 
 
-## Sapphire's Clover: the mine x HOT_HANDS_HARDER harder for every stage cleared while you hold it.
-func hot_harder() -> float:
-	return pow(Config.HOT_HANDS_HARDER, hot_stages * item_count("hot_hands"))
+## Sapphires Clover: the mine x CLOVER_HARDER harder for every stage cleared while you hold it.
+func clover_harder() -> float:
+	return pow(Config.CLOVER_HARDER, clover_stages * item_count("sapphires_clover"))
 
 
 ## Rapid Fire: how many times faster the mine runs.
@@ -1045,7 +1065,7 @@ static func _short(v: float) -> String:
 
 
 ## Every artifact that multiplies the mine's coins: Golden Apple, Draupnir, Familiar Circle, Art of Peace,
-## Mandrake and the rewards on everything (Death's Gambit, Sapphire's Clover, Rapid Fire).
+## Mandrake and the rewards on everything (Death's Gambit, Sapphires Clover, Rapid Fire).
 func artifact_coin_mult() -> float:
 	if not trip_active:
 		return 1.0
@@ -1456,10 +1476,29 @@ func set_show_tips(on: bool) -> void:
 	save()
 
 
+func set_practice_bpm(v: float) -> void:
+	practice_bpm = clampf(v, Config.HEART_REST_BPM, Config.HEART_STRESS_BPM)
+	save()
+
+
+func set_beat_practice(on: bool) -> void:
+	beat_practice = on
+	changed.emit()
+	save()
+
+
 func set_color_circles(on: bool) -> void:
 	color_circles = on
 	changed.emit()
 	save()
+
+
+## Artifacts that were renamed: old saves still hold the old id.
+const RENAMED_ITEMS := {"hot_hands": "sapphires_clover"}
+
+
+func _renamed_item(id) -> Variant:
+	return RENAMED_ITEMS.get(id, id)
 
 
 func set_tutorial_done() -> void:
@@ -1664,7 +1703,7 @@ func save() -> void:
 	cfg.set_value("run", "swapped", run_swapped)
 	cfg.set_value("run", "loot_ores", run_ores)
 	cfg.set_value("run", "loot_rocks", run_rocks)
-	cfg.set_value("run", "hot_stages", hot_stages)
+	cfg.set_value("run", "clover_stages", clover_stages)
 	cfg.set_value("run", "dice_half_stage", dice_half_stage)
 	cfg.set_value("run", "dice_wick_stage", dice_wick_stage)
 	cfg.set_value("run", "pet_feeds", pet_feeds)
@@ -1674,6 +1713,8 @@ func save() -> void:
 	cfg.set_value("prefs", "tips_seen", tips_seen)
 	cfg.set_value("prefs", "show_tips", show_tips)
 	cfg.set_value("prefs", "color_circles", color_circles)
+	cfg.set_value("prefs", "beat_practice", beat_practice)
+	cfg.set_value("prefs", "practice_bpm", practice_bpm)
 	cfg.save(SAVE_PATH)
 
 
@@ -1723,6 +1764,8 @@ func _load() -> bool:
 	show_hints = cfg.get_value("prefs", "show_hints", true)
 	show_tips = cfg.get_value("prefs", "show_tips", true)
 	color_circles = cfg.get_value("prefs", "color_circles", true)
+	beat_practice = cfg.get_value("prefs", "beat_practice", true)
+	practice_bpm = clampf(float(cfg.get_value("prefs", "practice_bpm", Config.HEART_REST_BPM)), Config.HEART_REST_BPM, Config.HEART_STRESS_BPM)
 	tips_seen = {}
 	var ts = cfg.get_value("prefs", "tips_seen", null)
 	if ts is Dictionary:
@@ -1739,7 +1782,7 @@ func _load() -> bool:
 			tickets[first_cave()] = int(tk)
 	free_ticket_at = minf(float(cfg.get_value("dwarves", "free_ticket_at", 0.0)), now() + Config.FREE_TICKET_SECONDS)
 	trip_active = cfg.get_value("dwarves", "trip_active", false)
-	var items_in: Array = cfg.get_value("run", "items", [])
+	var items_in: Array = Array(cfg.get_value("run", "items", [])).map(_renamed_item)
 	var stacks_in: Array = cfg.get_value("run", "stacks", [])
 	run_items = []
 	run_stacks = []
@@ -1751,10 +1794,13 @@ func _load() -> bool:
 	run_used = cfg.get_value("run", "used", {})
 	run_stages = int(cfg.get_value("run", "stages", 0))
 	ram_uses = int(cfg.get_value("run", "ram", 0))
-	run_swapped = cfg.get_value("run", "swapped", {})
+	run_swapped = {}
+	var sw: Dictionary = cfg.get_value("run", "swapped", {})
+	for k in sw:
+		run_swapped[_renamed_item(k)] = sw[k]
 	run_ores = _known(cfg.get_value("run", "loot_ores", {}), Config.ORES)
 	run_rocks = _known(cfg.get_value("run", "loot_rocks", {}), Config.ROCKS)
-	hot_stages = maxi(0, int(cfg.get_value("run", "hot_stages", 0)))
+	clover_stages = maxi(0, int(cfg.get_value("run", "clover_stages", cfg.get_value("run", "hot_stages", 0))))  # (0.7.1 and older: "hot_stages")
 	dice_half_stage = int(cfg.get_value("run", "dice_half_stage", -1))
 	dice_wick_stage = int(cfg.get_value("run", "dice_wick_stage", -1))
 	pet_feeds = clampi(int(cfg.get_value("run", "pet_feeds", 0)), 0, Config.PET_ROCK_FEEDS)
@@ -1762,7 +1808,7 @@ func _load() -> bool:
 	run_stats = st if st is Dictionary and not st.is_empty() else _new_stats()
 	run_slots = maxi(base_slots(), int(cfg.get_value("run", "slots", base_slots())))
 	run_greed_done = cfg.get_value("run", "greed_done", false)
-	item_offer = Array(cfg.get_value("run", "offer", [])).filter(func(i): return Config.ITEMS.has(i))
+	item_offer = Array(cfg.get_value("run", "offer", [])).map(_renamed_item).filter(func(i): return Config.ITEMS.has(i))
 	dynamite = clampi(int(cfg.get_value("run", "dynamite", 0)), 0, Config.DYNAMITE_MAX)
 	midas = clampf(float(cfg.get_value("run", "midas", 1.0)), 1.0, Config.MIDAS_MAX)
 	midas_moves = int(cfg.get_value("run", "midas_moves", 0))
